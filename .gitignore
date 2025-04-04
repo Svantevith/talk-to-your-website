@@ -1,0 +1,14 @@
+# Ignore the .env file
+.env
+
+# Ignore files in the /other folder
+/other
+
+# Ignore files in the /data folder
+/data
+
+# Ignore any __pychache__ folders
+*/__pycache__
+
+# Ignore the test.py file
+.test.py
