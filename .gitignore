@@ -8,7 +8,7 @@
 /data
 
 # Ignore any __pychache__ folders
-*/__pycache__
+**/__pycache__
 
 # Ignore the test.py file
-.test.py
+test.py
