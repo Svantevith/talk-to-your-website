@@ -1,4 +1,4 @@
-# Talk to your website: RAG agent enhanced with LLM-optimized website crawler
+# Talk to your website
 
 This project delivers Retrieval-Augmented Generation (RAG) agent enhanced with LLM-optimized website crawler built using Crawl4AI, Langchain, ChromaDB and Ollama. The agent can crawl websites, store extracted content in a local vector database, and provide context-aware answers to user queries by retrieving and analyzing the most relevant pieces of textual information.
 
