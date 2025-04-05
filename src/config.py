@@ -29,7 +29,7 @@ class ChatConfig(metaclass=ImmutableMeta):
     This class is immutable and cannot be instantiated.
     """
     # Bot message displayed after crawling website pages
-    WELCOME_MESSAGE = """
+    WELCOME_MESSAGE: Final[str] = """
         Hello, I am your personal assistant. 
        
         I can answer many general questions right away! 
@@ -38,8 +38,11 @@ class ChatConfig(metaclass=ImmutableMeta):
         How may I help you?
     """
 
+    # Wait time in seconds (must be greater than or equal to 0.0) between each token in the response stream
+    STREAM_INTERVAL: Final[float] = 0.02
+
     # Example chat response essentially used when debugging the application to avoid more time-consiming text generation with LLM
-    LOREM_IPSUM = """
+    LOREM_IPSUM: Final[str] = """
         Lorem ipsum dolor sit amet, consectetur adipiscing elit. Aenean gravida tincidunt eros, vitae mattis tellus fermentum sit amet.
         Suspendisse potenti. Vivamus elementum, magna eget tempor ornare, diam ex egestas lectus, accumsan pellentesque lorem lorem sed justo.
         Pellentesque sit amet tortor at enim consequat sollicitudin. Nunc et lacus ac tellus pellentesque consectetur id a velit.
@@ -63,33 +66,34 @@ class CrawlerConfig(metaclass=ImmutableMeta):
     # Streaming mode (True), Batch mode (False)
     STREAM_PROCESSING: Final[bool] = True
 
-    # Number of levels to crawl. Be cautious with values > 3, which can exponentially increase crawl size.
-    # Sets upper limit for the slider.
+    # Number of levels to crawl.
+    # Sets upper limit (must be greater than 1) for the slider.
+    # Be cautious with values > 3, which can exponentially increase crawl size.
     MAX_DEPTH: Final[int] = 5
 
     # Maximum number of pages to crawl.
-    # Use None to crawl all top-level pages.
-    # Sets upper limit for the slider.
+    # Sets upper limit (must be positive value greater or equal to 1) for the slider.
     MAX_PAGES: Final[Union[None, int]] = 50
 
     # Minimum score (breadth-first search) for pages to be crawled.
-    # Sets default value between 0.0 and 1.0 for slider.
+    # Sets default value (must be between 0.0 and 0.8) for the slider.
     MIN_SCORE: Final[int] = 0.2
 
     # Experiment with keyword weights (best-first search) for optimal page prioritization.
-    # Sets default value between 0.0 and 1.0 for the slider.
+    # Sets default value (must be between 0.0 and 1.0) for the slider.
     KW_WEIGHT: Final[float] = 0.7
 
-    # Minimum number of keywords to extract.
+    # Minimum number (must be greater than or equal to 1) of keywords to extract.
     KW_NUM: Final[int] = 3
 
-    # Proportion of the extracted keywords to the number of tokens inside the prompt.
+    # Proportion (must be between 0.0 and 0.3) of the extracted keywords to the number of tokens inside the prompt.
     KW_PROP: Final[float] = 0.05
 
-    # Number of tokens to extract as a keyword.
+    # Number of tokens (must be between 1 and 3) to extract as a keyword.
     KW_NGRAM: Final[int] = 3
 
-    # Deduplication factor for the keyword extraction. Lower values are better for deterministic search.
+    # Deduplication factor (must be between 0.0 and 1.0) for the keyword extraction. 
+    # Lower values are better for deterministic search.
     KW_DEDUP: Final[float] = 0.2
 
 
@@ -110,7 +114,7 @@ class RAGConfig(metaclass=ImmutableMeta):
         Referenced Ollama models have to be pulled
     """
     # Timestamp is appended to ensure unique collection per client session
-    COLLECTION_NAME = "web_search_llm"
+    COLLECTION_NAME: Final[str] = "web_search_llm"
 
     # Collections are automatically saved & loaded from the memory.
     # Persistent client allows to handle changing context retrieval parameters without the need to create new client session.
@@ -119,21 +123,21 @@ class RAGConfig(metaclass=ImmutableMeta):
     # Ollama embeddings model.
     EMBEDDINGS_MODEL: Final[str] = "all-minilm"
 
-    # Size of the segment in sliding window chunking.
+    # Return top-k relevant documents to the LLM.
+    # Sets upper limit (must be greater than or equal to 3) for the slider.
+    TOP_K: Final[int] = 10
+
+    # Amount of documents to pass to MMR algorithm.
+    # Sets upper limit (must be greater than or equal to 30) for the slider.
+    FETCH_K: Final[int] = 40
+
+    # Size of the segment (must be between 128 and 2048) in sliding window chunking.
     # In Ollama, default context window size is 2048 tokens.
     WINDOW_SIZE: Final[int] = 256
 
-    # Proportion of the overlap (10-30%) to the window size.
+    # Proportion of the overlap (must be between 0.0 and 0.3) to the window size.
     # A slightly higher overlap (0.2) helps preserve continuity.
     WINDOW_OVERLAP: Final[float] = 0.2
-
-    # Return top-k relevant documents to the LLM.
-    # Sets upper limit for the slider.
-    TOP_K: Final[int] = 12
-
-    # Amount of documents to pass to MMR algorithm.
-    # Sets upper limit for the slider.
-    FETCH_K: Final[int] = 40
 
     # Enable to delete collection and associated directories when RAG object is destroyed.
     # Keep in mind that RAG object operates on single collection, thus only artifacts for that particular collection are deleted.
@@ -195,9 +199,9 @@ class LLMConfig(metaclass=ImmutableMeta):
 
     # Increasing the temperature (default 0.8) will make the model answer more creatively.
     # Lower values lead to more deterministic answers.
-    # Sets default value between 0.0 and 1.0 for the slider.
+    # Sets default value (must be between 0.0 and 1.0) for the slider.
     TEMPERATURE: Final[float] = 0.3
 
     # Maximum number of tokens to predict when generating text.
-    # Sets upper limit for the slider.
+    # Sets upper limit (must be a multiple of 128 greater than or equal to 128) for the slider.
     MAX_TOKENS: Final[int] = 2048

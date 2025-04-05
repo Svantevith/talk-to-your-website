@@ -33,9 +33,15 @@ def persist_state() -> None:
                 "url": "",
                 "relevant_search": False,
                 "max_depth": 0,
-                "max_pages": min(1, max(1, CrawlerConfig.MAX_PAGES)),
-                "min_score": max(0.0, min(0.8, CrawlerConfig.MIN_SCORE)),
-                "kw_weight": max(0.1, min(1.0, CrawlerConfig.KW_WEIGHT))
+                "max_pages": 1,
+                "min_score": max(
+                    0.0, 
+                    min(0.8, round(CrawlerConfig.MIN_SCORE, 1))
+                ),
+                "kw_weight": max(
+                    0.0, 
+                    min(1.0, round(CrawlerConfig.KW_WEIGHT, 1))
+                )
             },
             "rag": {
                 # List all possible keys
@@ -48,7 +54,10 @@ def persist_state() -> None:
             },
             "llm": {
                 # List all possible keys
-                "temperature": max(0.3, min(1.0, LLMConfig.TEMPERATURE)),
+                "temperature": max(
+                    0.0, 
+                    min(1.0, round(LLMConfig.TEMPERATURE, 1))
+                ),
                 "max_tokens": -2
             }
         }
@@ -304,7 +313,7 @@ def crawler_settings() -> None:
 
         st.select_slider(
             label="Levels to crawl deeper",
-            options=[i for i in range(CrawlerConfig.MAX_DEPTH + 1)],
+            options=[i for i in range(0, max(1, CrawlerConfig.MAX_DEPTH) + 1)],
             format_func=lambda x:
                 "Starting page only"
                 if not x else int(x),
@@ -321,13 +330,9 @@ def crawler_settings() -> None:
                 "Beware of values greater than 3, which can exponentially increase crawl size"
             )
 
-        if st.session_state.crawler__relevant_search:
-            options = [i for i in range(1, 21)]
-
-        else:
-            options = [
-                i for i in range(1, CrawlerConfig.MAX_PAGES + 1)
-            ] + [None,]
+        options = [
+            i for i in range(1, max(1, CrawlerConfig.MAX_PAGES) + 1)
+        ] + [None,]
 
         options_map = {
             1: "Starting page only"
@@ -451,17 +456,13 @@ def rag_settings() -> None:
 
         # Use as default value
         settings_value = st.session_state.settings["rag"]["top_k"]
-        default_value = 3 if st.session_state.crawler__relevant_search else 5
 
         st.select_slider(
             label="Documents returned to the LLM",
-            options=[i for i in range(2, RAGConfig.TOP_K + 1)],
+            options=[i for i in range(1, max(3, RAGConfig.TOP_K) + 1)],
             key="rag__top_k",
             disabled=not ui_elements_enabled(),
-            value=settings_value if settings_value is not None else min(
-                default_value,
-                max(3, RAGConfig.TOP_K)
-            ),
+            value=settings_value if settings_value is not None else 2,
             on_change=settings_change_callback
         )
 
@@ -472,21 +473,17 @@ def rag_settings() -> None:
 
             # Use as default value
             settings_value = st.session_state.settings["rag"]["fetch_k"]
-            default_value = 10 if st.session_state.crawler__relevant_search else 20
 
             st.select_slider(
                 label="Documents retrieved before filtering",
-                options=[i for i in range(10, RAGConfig.FETCH_K + 1)],
+                options=[i for i in range(10, max(30, RAGConfig.FETCH_K) + 1)],
                 key="rag__fetch_k",
                 disabled=not (
                     st.session_state.chat_loaded and
                     st.session_state.last_crawl_completed and
                     st.session_state.response_written
                 ),
-                value=settings_value if settings_value is not None else min(
-                    default_value,
-                    max(10, RAGConfig.FETCH_K)
-                ),
+                value=settings_value if settings_value is not None else 20,
                 on_change=settings_change_callback
             )
 
@@ -497,7 +494,6 @@ def rag_settings() -> None:
 
             # Use as default value
             settings_value = st.session_state.settings["rag"]["min_diversity"]
-            default_value = 0.8 if st.session_state.crawler__relevant_search else 0.6
 
             st.select_slider(
                 label="Trade-off between relevance & diversity",
@@ -509,7 +505,7 @@ def rag_settings() -> None:
                     st.session_state.last_crawl_completed and
                     st.session_state.response_written
                 ),
-                value=settings_value if settings_value is not None else default_value,
+                value=settings_value if settings_value is not None else 0.6,
                 on_change=settings_change_callback
             )
 
@@ -528,7 +524,6 @@ def rag_settings() -> None:
 
             # Use as default value
             settings_value = st.session_state.settings["rag"]["min_similarity"]
-            default_value = 0.5 if st.session_state.crawler__relevant_search else 0.3
 
             st.select_slider(
                 label="Minimum similarity required",
@@ -540,7 +535,7 @@ def rag_settings() -> None:
                     st.session_state.last_crawl_completed and
                     st.session_state.response_written
                 ),
-                value=settings_value if settings_value is not None else default_value,
+                value=settings_value if settings_value is not None else 0.3,
                 on_change=settings_change_callback
             )
 
@@ -579,10 +574,12 @@ def llm_settings() -> None:
                 "Decreasing the temperature makes the answers **more deterministic**"
             )
 
+        max_tokens = round(max(128, LLMConfig.MAX_TOKENS) / 128)
+
         st.select_slider(
             label="Tokens in the generated response",
             options=[-2, ] + [
-                i for i in range(128, round(LLMConfig.MAX_TOKENS / 128) * 128 + 1, 128)
+                i for i in range(128, (max_tokens * 128) + 1, 128)
             ],
             format_func=lambda x:
                 "Fill context" if x == -2
@@ -1046,9 +1043,9 @@ async def retrieve_knowledgebase(keywords: list[str] = []) -> None:
             await st.session_state.rag.add_to_collection(
                 document,
                 # Do not exceed window size of 2048
-                window_size=max(256, min(2048, RAGConfig.WINDOW_SIZE)),
+                window_size=max(128, min(2048, RAGConfig.WINDOW_SIZE)),
                 # Do not exceed 30% overlap
-                window_overlap=max(0.1, min(0.3, RAGConfig.WINDOW_OVERLAP))
+                window_overlap=max(0.0, min(0.3, RAGConfig.WINDOW_OVERLAP))
             )
 
 
@@ -1077,10 +1074,10 @@ async def chat_response(user_prompt: str) -> None:
             # Extract keywords from the prompt
             keywords = extract_keywords(
                 text=user_prompt,
-                ngram_size=CrawlerConfig.KW_NGRAM,
-                dedup_factor=CrawlerConfig.KW_DEDUP,
-                kw_prop=CrawlerConfig.KW_PROP,
-                kw_num=CrawlerConfig.KW_NUM
+                ngram_size=min(3, max(1, CrawlerConfig.KW_NGRAM)),
+                dedup_factor=min(1.0, max(0.0, CrawlerConfig.KW_DEDUP)),
+                kw_prop=min(0.3, max(0.0, CrawlerConfig.KW_PROP)),
+                kw_num=max(1, CrawlerConfig.KW_NUM)
             )
 
             # Notice that keywords are passed for the relevancy scorer
@@ -1107,7 +1104,10 @@ async def chat_response(user_prompt: str) -> None:
     # Display assistant response in chat message container
     with st.chat_message("assistant"):
         chat_response = st.write_stream(
-            stream_response(llm_response)
+            stream_response(
+                text=llm_response,
+                seconds=max(0.0, ChatConfig.STREAM_INTERVAL)
+            )
         )
 
     # Update flags as soon as writing stream response finishes
