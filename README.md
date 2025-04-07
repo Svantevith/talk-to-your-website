@@ -8,7 +8,7 @@ By leveraging ChromaDB and Ollama on a local machine, this system offers several
 - Privacy & Security – No external API calls, ensuring data remains private.
 - Cost-Effective – No reliance on paid APIs or cloud subscriptions.
 - Offline Functionality – Works without an internet connection retrieving context from locally persisted collection.
-- Multi-langage Support – Various models are trained on a broad collection of languages. 
+- Multilangage Support – Various models are trained on a broad collection of languages, however it must be taken into account that the leading language is English.
 
 This makes the application an excellent choice for research, knowledge management, and AI-powered text analysis without compromising control over your data. 
 

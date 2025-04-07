@@ -1,6 +1,6 @@
 from time import sleep
-from collections.abc import Generator
 from httpx import ReadTimeout
+from collections.abc import Generator
 from langchain_ollama import ChatOllama
 
 
@@ -11,7 +11,8 @@ class LLM():
         model_variant: str = "llama3.2:1b",
         temperature: float = 0.3,
         max_tokens: int = -2,
-        timeout: float = 30
+        keep_alive: int = 3600,
+        timeout: int = 30
     ) -> None:
         """
         LLM objects are used to respond to the queries based on the given context, usually obtained from RAGs.
@@ -26,14 +27,17 @@ class LLM():
                 Creativity of the model.
             max_tokens : int
                 Truncate tokens in the response or use -2 to ensure context is filled. 
-            timeout : float
-                Timeout for the request stream.
+            keep_alive : int
+                Number of seconds the model stays loaded in memory after generating a response.
+            timeout : int
+                Timeout in seconds for the request stream.
         """
         self.system_prompt = system_prompt
         self.model_variant = model_variant
         self.temperature = temperature
-        self.max_tokens = max_tokens if max_tokens >= 0 else -2
-        self.timeout = timeout
+        self.max_tokens = max_tokens if max_tokens > 0 else -2
+        self.keep_alive = keep_alive if keep_alive > 0 else 0
+        self.timeout = timeout if timeout > 1 else 1
 
         # Llama 3 instruction-tuned models are fine-tuned and optimized for dialogue/chat use cases
         self.__model = ChatOllama(
@@ -43,15 +47,16 @@ class LLM():
             temperature=self.temperature,
             # Maximum number of tokens to predict when generating text
             num_predict=self.max_tokens,
+            # How long model stays loaded in memory
+            keep_alive=self.keep_alive,
             # Additional kwargs to the httpx Client
             client_kwargs={
                 # Timeout configuration to use when sending request
                 "timeout": self.timeout
             }
         )
-
-
-    def stream_response(self, query: str, context: str) -> Generator[str]:
+                
+    def stream_response(self, query: str, context: str)  -> Generator[str]:
         """
         Stream generated response.
 

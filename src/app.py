@@ -2,6 +2,7 @@
 import time
 import json
 import streamlit as st
+from itertools import chain
 from typing import Generator, Literal
 
 # Custom classes
@@ -46,11 +47,12 @@ def persist_state() -> None:
             "rag": {
                 # List all possible keys
                 "search_function": "mmr",
-                # These values are set dynamically depending on the crawling strategy
-                "top_k": None,
-                "fetch_k": None,
-                "min_diversity": None,
-                "min_similarity": None
+                "top_k": 2,
+                "window_size": 256,
+                "window_overlap": 0.2,
+                "fetch_k": 20,
+                "min_diversity": 0.6,
+                "min_similarity": 0.3
             },
             "llm": {
                 # List all possible keys
@@ -220,9 +222,10 @@ def basic_settings() -> None:
         else:
             # This section can be displayed AFTER crawler's settings are validated and submitted
             # Explicitly disable crawler to prevent its functionality without internet connection
+            st.session_state.crawler__enabled = False
             st.session_state.settings["crawler"]["enabled"] = False
             
-            st.session_state.crawler__enabled = st.pills(
+            st.pills(
                 label="Retrieval mode",
                 options=options_map.keys(),
                 format_func=lambda x: options_map[x],
@@ -454,25 +457,51 @@ def rag_settings() -> None:
                 """
         )
 
-        # Use as default value
-        settings_value = st.session_state.settings["rag"]["top_k"]
-
         st.select_slider(
             label="Documents returned to the LLM",
             options=[i for i in range(1, max(3, RAGConfig.TOP_K) + 1)],
             key="rag__top_k",
             disabled=not ui_elements_enabled(),
-            value=settings_value if settings_value is not None else 2,
+            value=st.session_state.settings["rag"]["top_k"],
             on_change=settings_change_callback
         )
+
+        options_map = {
+            128: "Improve precision",
+            1024: "Preserve context"
+        }
+
+        st.select_slider(
+            label="Size of a semantic chunk",
+            options=[i for i in range(128, 1025, 128)],
+            format_func=lambda x: options_map.get(x, x),
+            key="rag__window_size",
+            disabled=not ui_elements_enabled(),
+            value=st.session_state.settings["rag"]["window_size"],
+            on_change=settings_change_callback
+        )
+
+        options_map = {
+            0.1: "Light",
+            0.3: "Better"
+        }
+
+        st.select_slider(
+            label="Overlap between chunks",
+            options=[i/100 for i in range(10, 31, 5)],
+            format_func=lambda x: f"{options_map[x]} continuity" if options_map.get(x, None) else f"{x * 100}%",
+            key="rag__window_overlap",
+            disabled=not ui_elements_enabled(),
+            value=st.session_state.settings["rag"]["window_overlap"],
+            on_change=settings_change_callback
+        )
+
+        st.info("In Ollama, default context size is 2048 tokens")
 
         if st.session_state.rag__search_function == "mmr":
 
             # Pop conditional control values that are not used
             st.session_state.pop("rag__min_similarity", None)
-
-            # Use as default value
-            settings_value = st.session_state.settings["rag"]["fetch_k"]
 
             st.select_slider(
                 label="Documents retrieved before filtering",
@@ -483,7 +512,7 @@ def rag_settings() -> None:
                     st.session_state.last_crawl_completed and
                     st.session_state.response_written
                 ),
-                value=settings_value if settings_value is not None else 20,
+                value=st.session_state.settings["rag"]["fetch_k"],
                 on_change=settings_change_callback
             )
 
@@ -491,9 +520,6 @@ def rag_settings() -> None:
                 0.0: "Diversity",
                 1.0: "Relevance"
             }
-
-            # Use as default value
-            settings_value = st.session_state.settings["rag"]["min_diversity"]
 
             st.select_slider(
                 label="Trade-off between relevance & diversity",
@@ -505,7 +531,7 @@ def rag_settings() -> None:
                     st.session_state.last_crawl_completed and
                     st.session_state.response_written
                 ),
-                value=settings_value if settings_value is not None else 0.6,
+                value=st.session_state.settings["rag"]["min_diversity"],
                 on_change=settings_change_callback
             )
 
@@ -522,9 +548,6 @@ def rag_settings() -> None:
                 1.0: "Identical"
             }
 
-            # Use as default value
-            settings_value = st.session_state.settings["rag"]["min_similarity"]
-
             st.select_slider(
                 label="Minimum similarity required",
                 options=options,
@@ -535,7 +558,7 @@ def rag_settings() -> None:
                     st.session_state.last_crawl_completed and
                     st.session_state.response_written
                 ),
-                value=settings_value if settings_value is not None else 0.3,
+                value=st.session_state.settings["rag"]["min_similarity"],
                 on_change=settings_change_callback
             )
 
@@ -828,7 +851,8 @@ def llm_settings_submitted() -> bool:
             model_variant=LLMConfig.MODEL_VARIANT,
             temperature=st.session_state.settings["llm"]["temperature"],
             max_tokens=st.session_state.settings["llm"]["max_tokens"],
-            timeout=max(10.0, LLMConfig.TIMEOUT)
+            keep_alive=LLMConfig.KEEP_ALIVE,
+            timeout=LLMConfig.TIMEOUT,
         )
 
     # Indicate success
@@ -1043,10 +1067,8 @@ async def retrieve_knowledgebase(keywords: list[str] = []) -> None:
         if document.page_content:
             await st.session_state.rag.add_to_collection(
                 document,
-                # Do not exceed window size of 1024
-                window_size=max(128, min(1024, RAGConfig.WINDOW_SIZE)),
-                # Do not exceed 30% overlap
-                window_overlap=max(0.0, min(0.3, RAGConfig.WINDOW_OVERLAP))
+                window_size=st.session_state.settings["rag"]["window_size"],
+                window_overlap=st.session_state.settings["rag"]["window_overlap"]
             )
 
 
@@ -1098,14 +1120,19 @@ async def chat_response(user_prompt: str) -> None:
         min_similarity=st.session_state.settings["rag"]["min_similarity"]
     )
 
-    # Display assistant response in chat message container
+    with st.spinner("Generating response"):
+        # Invoke LLM to stream response
+        response = st.session_state.llm.stream_response(user_prompt, context)
+        
+        # Wait for request fulfillment and get the first token
+        # Otherwise spinner is not visible, because first item from the generator is referenced when writing stream begins
+        first_token = next(response)
+
     with st.chat_message("assistant"):
-        start_time = time.time()
+        # Display assistant response in chat message container
         chat_response = st.write_stream(
-            stream=st.session_state.llm.stream_response(user_prompt, context)
+            stream=chain([first_token], response)
         )
-        end_time = time.time()
-        print("Response time:", end_time - start_time)
 
     # Update flags as soon as writing stream response finishes
     st.session_state.response_written = True

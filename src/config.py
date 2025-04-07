@@ -131,19 +131,10 @@ class RAGConfig(metaclass=ImmutableMeta):
     # Sets upper limit (must be greater than or equal to 30) for the slider.
     FETCH_K: Final[int] = 40
 
-    # Size of the segment (must be between 128 and 1024) in sliding window chunking.
-    # In Ollama, default context window size is 2048 tokens.
-    # Ensure you leave room for the prompt and expected model response to stay within the total context window.
-    WINDOW_SIZE: Final[int] = 256
-
-    # Proportion of the overlap (must be between 0.0 and 0.3) to the window size.
-    # A slightly higher overlap (0.2) helps preserve continuity.
-    WINDOW_OVERLAP: Final[float] = 0.2
-
     # Enable to delete collection and associated directories when RAG object is destroyed.
     # Keep in mind that RAG object operates on single collection, thus only artifacts for that particular collection are deleted.
     # Be aware that if there is no collection available, offline capabilities are restricted to the general LLM knowledge.
-    CLEANUP_COLLECTION: Final[bool] = False
+    CLEANUP_COLLECTION: Final[bool] = True
 
 
 class LLMConfig(metaclass=ImmutableMeta):
@@ -164,7 +155,7 @@ class LLMConfig(metaclass=ImmutableMeta):
     # System prompt for the assistant to control its response behaviour
     SYSTEM_PROMPT: Final[str] = """
         Task description: 
-            - You are an AI assistant tasked with providing detailed answers based solely on the given context.
+            - You are an AI assistant tasked with providing detailed answers based primarily on the given context.
             - Your goal is to analyze the information provided and formulate a comprehensive, well-structured response to the question.
 
         Prompt format:
@@ -172,25 +163,21 @@ class LLMConfig(metaclass=ImmutableMeta):
             - Question will be passed as "Question:"
 
         To answer the question:
-            - Thoroughly analyze the context, identifying key information relevant to the question.
-            - Organize your thoughts and plan your response to ensure a logical flow of information.
-            - Formulate a detailed answer that directly addresses the question, using only the information provided in the context.
-            - When the context supports an answer, ensure your response is clear, concise, and directly addresses the question.
-            - When there is no context, just say you have no context and stop immediately.
-            - If the context doesn't contain sufficient information to fully answer the question, state this clearly in your response.
-            - Avoid explaining why you cannot answer or speculating about missing details. Simply state that you lack sufficient context when necessary.
+            - Organize your thoughts and plan your response to ensure a logical flow of information. 
+            - If context is sufficient, rely on it to generate a detailed and coherent response:
+                - Thoroughly analyze the context and identify key information relevant to the question.
+                - Do not include any external knowledge or assumptions not present in the given text that could mislead the user.
+            - If context is missing or it does not contain enough information, use your general knowledge to complete the response:
+                - Explicitly state that the context was not provided or lacks sufficient detail.
+                - Emphasize that the answer relies on your general knowledge and is not supported by the context.
 
         Format your response as follows:
             - Use clear, concise language.
             - Organize your answer into paragraphs for readability.
             - Use bullet points or numbered lists where appropriate to break down complex information.
-            - If relevant, include any headings or subheadings to structure your response.
+            - If relevant, include headings or subheadings to structure your response.
             - Ensure proper grammar, punctuation, and spelling throughout your answer.
-            - Do not mention what you received in context, just focus on answering based on the context.
-
-        Important: 
-            - Base your entire response solely on the information provided in the context. 
-            - Do not include any external knowledge or assumptions not present in the given text.
+            - Avoid mentioning what you received in the context, just focus on answering based on the context (if present).
     """
 
     # Ollama LLM model variant.
@@ -207,5 +194,9 @@ class LLMConfig(metaclass=ImmutableMeta):
     # Sets upper limit (must be a multiple of 128 greater than or equal to 128) for the slider.
     MAX_TOKENS: Final[int] = 2048
 
-    # Timeout (must be greater than or equal to 10.0) in seconds for the request stream
-    TIMEOUT: Final[float] = 30.0
+    # Timeout (must be greater than or equal to 1) in seconds for the request stream
+    TIMEOUT: Final[int] = 30
+
+    # By default models are kept in memory for 5 minutes before being unloaded.
+    # This allows for quicker response times if you're making numerous requests (like in a chat conversation) to the LLM.
+    KEEP_ALIVE: Final[int] = 3600
