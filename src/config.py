@@ -39,7 +39,7 @@ class ChatConfig(metaclass=ImmutableMeta):
     """
 
     # Wait time in seconds (must be greater than or equal to 0.0) between each token in the response stream
-    STREAM_INTERVAL: Final[float] = 0.02
+    STREAM_INTERVAL: Final[float] = 0.05
 
     # Example chat response essentially used when debugging the application to avoid more time-consiming text generation with LLM
     LOREM_IPSUM: Final[str] = """
@@ -131,8 +131,9 @@ class RAGConfig(metaclass=ImmutableMeta):
     # Sets upper limit (must be greater than or equal to 30) for the slider.
     FETCH_K: Final[int] = 40
 
-    # Size of the segment (must be between 128 and 2048) in sliding window chunking.
+    # Size of the segment (must be between 128 and 1024) in sliding window chunking.
     # In Ollama, default context window size is 2048 tokens.
+    # Ensure you leave room for the prompt and expected model response to stay within the total context window.
     WINDOW_SIZE: Final[int] = 256
 
     # Proportion of the overlap (must be between 0.0 and 0.3) to the window size.
@@ -205,3 +206,6 @@ class LLMConfig(metaclass=ImmutableMeta):
     # Maximum number of tokens to predict when generating text.
     # Sets upper limit (must be a multiple of 128 greater than or equal to 128) for the slider.
     MAX_TOKENS: Final[int] = 2048
+
+    # Timeout (must be greater than or equal to 10.0) in seconds for the request stream
+    TIMEOUT: Final[float] = 30.0

@@ -134,13 +134,23 @@ class RAG():
             chunk_size=window_size,
             chunk_overlap=round(window_size * window_overlap),
             separators=[
-                # Split by paragraphs and line breaks.
+                # Split by paragraphs and line breaks
                 "\n\n", "\n",
-                # Split at sentence boundaries (., ?, !).
-                ".", "?", "!",
-                # Ensure that if no larger splits work, words and characters get split last.
+                # Split at sentence boundaries (., ?, !)
+                ".", ",", "?", "!",
+                # Zero-width space
+                "\u200b", 
+                # Fullwidth comma
+                "\uff0c", 
+                # Ideographic comma
+                "\u3001", 
+                # Fullwidth full stop
+                "\uff0e", 
+                # Ideographic full stop
+                "\u3002",  
+                # Ensure that if no larger splits work, words and characters get split last
                 " ", "",
-            ]
+            ],
         )
         
         # Sliding window generates overlapping chunks for better contextual coherence
@@ -156,33 +166,6 @@ class RAG():
             except DuplicateIDError as e:
                 # Duplicate documents are skipped, but exception is raised
                 print(f"=== Adding document to {self.collection_name} collection failed. {e} ===")
-
-    def describe_collection(self, docs_limit: Union[None, int] = None) -> None:
-        """
-        Print details about the collection's content.
-
-        Parameters
-        ----------
-            docs_limit : Union[None, int]
-                Number of documents to consider.
-        """
-        # Get collections content
-        collection = self.__collection.get(
-            limit=docs_limit
-        )
-
-        print(
-            f"\n=== Displaying {len(collection["ids"])} documents from the {self.collection_name} collection ===\n"
-        )
-
-        print(
-            *[
-                f"ID: {doc_id}\nContent: {doc_content}\nMetadata: {doc_meta}"
-                for doc_id, doc_content, doc_meta in zip(collection["ids"], collection["documents"], collection["metadatas"])
-            ],
-            sep="\n\n",
-            end="\n\n"
-        )
 
     def get_context(
         self,
@@ -268,3 +251,30 @@ class RAG():
 
         # Return context to the LLM.
         return context
+
+    def describe_collection(self, docs_limit: Union[None, int] = None) -> None:
+        """
+        Print details about the collection's content.
+
+        Parameters
+        ----------
+            docs_limit : Union[None, int]
+                Number of documents to consider.
+        """
+        # Get collections content
+        collection = self.__collection.get(
+            limit=docs_limit
+        )
+
+        print(
+            f"\n=== Displaying {len(collection["ids"])} documents from the {self.collection_name} collection ===\n"
+        )
+
+        print(
+            *[
+                f"ID: {doc_id}\nContent: {doc_content}\nMetadata: {doc_meta}"
+                for doc_id, doc_content, doc_meta in zip(collection["ids"], collection["documents"], collection["metadatas"])
+            ],
+            sep="\n\n",
+            end="\n\n"
+        )

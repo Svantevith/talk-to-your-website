@@ -1,11 +1,9 @@
 import os
-import time
 import socket
 import requests
 import shutil
 import sqlite3
 from datetime import datetime
-from collections.abc import Generator
 from yake import KeywordExtractor
 
 
@@ -168,27 +166,6 @@ def modified_metadata(
             old_metadata.get(key, "") != new_value
         )
     }
-
-
-def stream_response(text: str, seconds: float = 0.05) -> Generator[str]:
-    """
-    Yield one word at a time to the streamlit's write_stream function.
-
-    Parameters
-    ----------
-        text : str
-            Message to stream.
-        seconds : float
-            Seconds to wait between each iteration.
-
-    Returns
-    -------
-        Generator[str]
-            Word generator.
-    """
-    for word in text.split(" "):
-        yield word + " "
-        time.sleep(seconds)
 
 
 def validate_url(url: str) -> str:

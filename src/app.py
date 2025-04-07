@@ -13,7 +13,7 @@ from src.models import LLM
 from src.config import ChatConfig, CrawlerConfig, RAGConfig, LLMConfig
 
 # Helper functions
-from utils.helper_functions import connected_to_internet, extract_keywords, validate_url, get_timestamp, stream_response
+from utils.helper_functions import connected_to_internet, extract_keywords, validate_url, get_timestamp
 
 
 def persist_state() -> None:
@@ -827,7 +827,8 @@ def llm_settings_submitted() -> bool:
             system_prompt=LLMConfig.SYSTEM_PROMPT,
             model_variant=LLMConfig.MODEL_VARIANT,
             temperature=st.session_state.settings["llm"]["temperature"],
-            max_tokens=st.session_state.settings["llm"]["max_tokens"]
+            max_tokens=st.session_state.settings["llm"]["max_tokens"],
+            timeout=max(10.0, LLMConfig.TIMEOUT)
         )
 
     # Indicate success
@@ -1042,8 +1043,8 @@ async def retrieve_knowledgebase(keywords: list[str] = []) -> None:
         if document.page_content:
             await st.session_state.rag.add_to_collection(
                 document,
-                # Do not exceed window size of 2048
-                window_size=max(128, min(2048, RAGConfig.WINDOW_SIZE)),
+                # Do not exceed window size of 1024
+                window_size=max(128, min(1024, RAGConfig.WINDOW_SIZE)),
                 # Do not exceed 30% overlap
                 window_overlap=max(0.0, min(0.3, RAGConfig.WINDOW_OVERLAP))
             )
@@ -1087,28 +1088,24 @@ async def chat_response(user_prompt: str) -> None:
         st.session_state.qds_in_progress = False
         st.session_state.last_crawl_completed = True
 
-    with st.spinner("Generating response"):
-        # Retrieve context with RAG
-        context = st.session_state.rag.get_context(
-            query=user_prompt,
-            search_function=st.session_state.settings["rag"]["search_function"],
-            top_k=st.session_state.settings["rag"]["top_k"],
-            fetch_k=st.session_state.settings["rag"]["fetch_k"],
-            min_diversity=st.session_state.settings["rag"]["min_diversity"],
-            min_similarity=st.session_state.settings["rag"]["min_similarity"]
-        )
-
-        # Generate response with LLM
-        llm_response = st.session_state.llm.respond(user_prompt, context)
+    # Retrieve context with RAG
+    context = st.session_state.rag.get_context(
+        query=user_prompt,
+        search_function=st.session_state.settings["rag"]["search_function"],
+        top_k=st.session_state.settings["rag"]["top_k"],
+        fetch_k=st.session_state.settings["rag"]["fetch_k"],
+        min_diversity=st.session_state.settings["rag"]["min_diversity"],
+        min_similarity=st.session_state.settings["rag"]["min_similarity"]
+    )
 
     # Display assistant response in chat message container
     with st.chat_message("assistant"):
+        start_time = time.time()
         chat_response = st.write_stream(
-            stream_response(
-                text=llm_response,
-                seconds=max(0.0, ChatConfig.STREAM_INTERVAL)
-            )
+            stream=st.session_state.llm.stream_response(user_prompt, context)
         )
+        end_time = time.time()
+        print("Response time:", end_time - start_time)
 
     # Update flags as soon as writing stream response finishes
     st.session_state.response_written = True

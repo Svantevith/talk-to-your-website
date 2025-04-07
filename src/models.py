@@ -1,3 +1,6 @@
+from time import sleep
+from collections.abc import Generator
+from httpx import ReadTimeout
 from langchain_ollama import ChatOllama
 
 
@@ -7,7 +10,8 @@ class LLM():
         system_prompt: str,
         model_variant: str = "llama3.2:1b",
         temperature: float = 0.3,
-        max_tokens: int = -2
+        max_tokens: int = -2,
+        timeout: float = 30
     ) -> None:
         """
         LLM objects are used to respond to the queries based on the given context, usually obtained from RAGs.
@@ -22,24 +26,34 @@ class LLM():
                 Creativity of the model.
             max_tokens : int
                 Truncate tokens in the response or use -2 to ensure context is filled. 
+            timeout : float
+                Timeout for the request stream.
         """
         self.system_prompt = system_prompt
         self.model_variant = model_variant
         self.temperature = temperature
         self.max_tokens = max_tokens if max_tokens >= 0 else -2
+        self.timeout = timeout
 
-        # Llama 3 instruction-tuned models are fine-tuned and optimized for dialogue/chat use cases.
+        # Llama 3 instruction-tuned models are fine-tuned and optimized for dialogue/chat use cases
         self.__model = ChatOllama(
-            # Meta's Llama 3.2 goes small with 1B and 3B models. 1B offers multilingual knowledge retrieval.
+            # Meta's Llama model variant
             model=self.model_variant,
+            # Balance between deterministic and creative responses
             temperature=self.temperature,
-            # Maximum number of tokens to predict when generating text.
-            num_predict=self.max_tokens
+            # Maximum number of tokens to predict when generating text
+            num_predict=self.max_tokens,
+            # Additional kwargs to the httpx Client
+            client_kwargs={
+                # Timeout configuration to use when sending request
+                "timeout": self.timeout
+            }
         )
 
-    def respond(self, query: str, context: str) -> str:
+
+    def stream_response(self, query: str, context: str) -> Generator[str]:
         """
-        Respond to the question.
+        Stream generated response.
 
         Parameters
         ----------
@@ -50,10 +64,10 @@ class LLM():
 
         Returns
         -------
-            str
-                Generated content. 
+            Generator[str]
+                Yield generated content one token at a time. 
         """
-        # Input to the LLM.
+        # Input to the LLM
         messages = [
             {
                 "role": "system",
@@ -65,9 +79,12 @@ class LLM():
             }
         ]
 
-        # Invoke LLM and get the response.
-        print("=== Generating response ===")
-        response = self.__model.invoke(messages)
-
-        print("=== Response ready ===")
-        return response.content
+        try:
+            # Invoke LLM and stream the response
+            yield from self.__model.stream(messages)
+        
+        except ReadTimeout:
+            # Stream exception message
+            for word in "Sorry, but I could not fulfill your request within the specified timeout threshold.".split():
+                yield word + " "
+                sleep(0.02)
