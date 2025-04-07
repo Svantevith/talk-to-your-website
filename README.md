@@ -23,9 +23,9 @@ This makes the application an excellent choice for research, knowledge managemen
 
 ## Prerequisites
 
-- Python 3.7+ `https://www.python.org/downloads/`
+- Python 3.8+ `https://www.python.org/downloads/`
 - Ollama client, a local runtime for LLMs `https://ollama.com/download`
-- Referenced Ollama models have to be pulled `https://ollama.com/search`
+- Referenced Ollama models `https://ollama.com/search` have to be pulled, for example `ollama pull llama3.2:1b`
 
 ## Installation
 
