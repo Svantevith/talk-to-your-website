@@ -12,29 +12,29 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 class RAG():
     def __init__(
         self,
+        embedding_model: str = "all-minilm:latest",
         collection_name: str = "",
         persist_directory: str = "",
-        embeddings_model: str = "all-minilm",
         cleanup_collection: bool = False
     ) -> None:
         """
         RAG objects use Ollama embeddings model to retrieve context for the LLMs based on the collected knowledgebase. 
 
         Parameters
-        ----------     
+        ---------- 
+            embedding_model : str
+                Ollama model to generate embeddings.    
             collection_name : str
                 Name for the collection.
             persist_directory : str
                 Directory where to persist collections.
-            embeddings_model : str
-                Ollama model to generate embeddings.
             cleanup_collection : bool
                 Remove created collection and persisted artifacts when object is destroyed.
         """
         # Collection configuration
+        self.embedding_model = embedding_model
         self.collection_name = collection_name[:63]
         self.persist_directory = persist_directory
-        self.embeddings_model = embeddings_model
         self.cleanup_collection = cleanup_collection
 
         # Chroma client instance
@@ -46,7 +46,7 @@ class RAG():
         # Chroma integrates as local vector store
         self.__collection = Chroma(
             collection_name=self.collection_name,
-            embedding_function=OllamaEmbeddings(model=self.embeddings_model),
+            embedding_function=OllamaEmbeddings(model=self.embedding_model),
             client=self.__client,
             # Prevent negative scores
             collection_metadata={"hnsw:space": "cosine"}

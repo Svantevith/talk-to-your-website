@@ -1,10 +1,41 @@
 import os
+import httpx
 import socket
 import requests
 import shutil
 import sqlite3
 from datetime import datetime
 from yake import KeywordExtractor
+
+
+def list_ollama_models(families: set[str] = {}) -> list[str]:
+    """
+    Use Ollama's API to retrieve list of locally available (i.e. pulled) models belonging to the specified families. 
+    Architecture details (including the family) for each model can be found in the library: https://ollama.com/search
+
+    Parmeters
+    ---------
+        families : set[str]
+            Set of model families to filter results.
+    
+    Returns
+    -------
+        List of model names.
+    """
+    # The /api/tags endpoint is specified in the documentation: https://github.com/ollama/ollama/blob/main/docs/api.md
+    endpoint = "http://localhost:11434/api/tags"
+    try:
+        # Send GET request
+        response = httpx.get(endpoint)
+        response.raise_for_status()
+        return [
+            model["name"] for model in response.json().get("models", [])
+            if not families or model["details"]["family"] in families
+        ]
+    except (ConnectionRefusedError, httpx.HTTPStatusError) as e:
+        print(
+            f"=== Cannot retrieve list of models from the http://localhost:11434/api/tags endpoint: {e}")
+        return []
 
 
 def delete_collection_directories(persist_directory: str) -> None:
@@ -120,6 +151,7 @@ def connected_to_internet(host: str = "8.8.8.8", port: int = 53, timeout: float 
         print(f"=== Connection with the host {host} over port {port} could not be established: {e}")
         return False
 
+
 def get_timestamp() -> str:
     """
     Retrieve timestamp with precision to miliseconds. 
@@ -132,45 +164,9 @@ def get_timestamp() -> str:
     return datetime.now().strftime(r'%Y%m%d%H%M%S%f')[:16]
 
 
-def modified_metadata(
-    old_metadata: dict[str, any],
-    new_metadata: dict[str, any],
-    excluded_prefix: str = "",
-    excluded_keys: set[str] = {}
-) -> set[str]:
-    """
-    Retrieve keys of modified metadata.
-
-    Parameters
-    ----------
-        old_metadata : dict[str, any]
-            Single-level dictionary with previous values.
-        old_metadata : dict[str, Any]
-            Single-level dictionary with current values.
-        excluded_prefix : str[str]
-            Prefix to exclude from comparison.
-        excluded_keys : set[str]
-            Set of keys to exclude from comparison.
-
-    Returns
-    -------
-        set[str] 
-            Set of keys corresponding to the modified metadata.
-    """
-
-    return {
-        key for key, new_value in new_metadata.items()
-        if (
-            key not in excluded_keys and
-            (excluded_prefix == "" or not key.startswith(excluded_prefix)) and
-            old_metadata.get(key, "") != new_value
-        )
-    }
-
-
 def validate_url(url: str) -> str:
     """
-    Validate URL address.
+    Validate whether URL address exists.
 
     Parameters
     ----------
@@ -183,10 +179,18 @@ def validate_url(url: str) -> str:
             Exception message if errors occurred.
     """
     try:
-        requests.get(url)
-        return ""
-    except (requests.ConnectionError, requests.exceptions.MissingSchema) as e:
-        return e
+        # With 'stream' option enabled we avoid body being immediately downloaded unless explicitly requested
+        r = requests.get(url, stream=True, allow_redirects=True, verify=True)
+
+        # Indicate success
+        if 200 <= r.status_code < 400:
+            return ""
+
+        # Indicate failure
+        return f"Connection with {url} failed with status {r.status_code}: {r.reason}"
+
+    except (ConnectionRefusedError, requests.ConnectionError, requests.exceptions.MissingSchema) as e:
+        return f"Connection with {url} could not be established: {e}"
 
 
 def extract_keywords(text, ngram_size: int = 1, dedup_factor: float = 0.2, kw_prop: float = 0.05, kw_num: int = 3) -> list[str]:

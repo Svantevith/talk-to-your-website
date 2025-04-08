@@ -120,9 +120,6 @@ class RAGConfig(metaclass=ImmutableMeta):
     # Persistent client allows to handle changing context retrieval parameters without the need to create new client session.
     PERSIST_DIRECTORY: Final[str] = "./data/chroma_db"
 
-    # Ollama embeddings model.
-    EMBEDDINGS_MODEL: Final[str] = "all-minilm"
-
     # Return top-k relevant documents to the LLM.
     # Sets upper limit (must be greater than or equal to 3) for the slider.
     TOP_K: Final[int] = 10
@@ -180,11 +177,6 @@ class LLMConfig(metaclass=ImmutableMeta):
             - Avoid mentioning what you received in the context, just focus on answering based on the context (if present).
     """
 
-    # Ollama LLM model variant.
-    # Meta's Llama 3.2 is a very lightweight, instruction-tuned model with only 1B parameters.
-    # English, German, French, Italian, Portuguese, Hindi, Spanish, and Thai are officially supported.
-    MODEL_VARIANT: Final[str] = "llama3.2:1b"
-
     # Increasing the temperature (default 0.8) will make the model answer more creatively.
     # Lower values lead to more deterministic answers.
     # Sets default value (must be between 0.0 and 1.0) for the slider.
@@ -194,7 +186,8 @@ class LLMConfig(metaclass=ImmutableMeta):
     # Sets upper limit (must be a multiple of 128 greater than or equal to 128) for the slider.
     MAX_TOKENS: Final[int] = 2048
 
-    # Timeout (must be greater than or equal to 1) in seconds for the request stream
+    # Timeout (must be greater than or equal to 1) in seconds for the request stream.
+    # Requests are sent to the local Ollama client, avoiding external API calls.
     TIMEOUT: Final[int] = 30
 
     # By default models are kept in memory for 5 minutes before being unloaded.

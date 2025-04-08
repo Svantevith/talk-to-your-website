@@ -89,7 +89,7 @@ class LLM():
             yield from self.__model.stream(messages)
         
         except ReadTimeout:
-            # Stream exception message
+            # Stream exception message (langchain communicates with the local Ollama models through the HTTP protocol)
             for word in "Sorry, but I could not fulfill your request within the specified timeout threshold.".split():
                 yield word + " "
                 sleep(0.02)

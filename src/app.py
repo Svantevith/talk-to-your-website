@@ -14,7 +14,7 @@ from src.models import LLM
 from src.config import ChatConfig, CrawlerConfig, RAGConfig, LLMConfig
 
 # Helper functions
-from utils.helper_functions import connected_to_internet, extract_keywords, validate_url, get_timestamp
+from utils.helper_functions import list_ollama_models, connected_to_internet, extract_keywords, validate_url, get_timestamp
 
 
 def persist_state() -> None:
@@ -46,6 +46,7 @@ def persist_state() -> None:
             },
             "rag": {
                 # List all possible keys
+                "embedding_model": "",
                 "search_function": "mmr",
                 "top_k": 2,
                 "window_size": 256,
@@ -56,6 +57,7 @@ def persist_state() -> None:
             },
             "llm": {
                 # List all possible keys
+                "generative_model": "",
                 "temperature": max(
                     0.0, 
                     min(1.0, round(LLMConfig.TEMPERATURE, 1))
@@ -63,6 +65,14 @@ def persist_state() -> None:
                 "max_tokens": -2
             }
         }
+    
+    # Retrieve available LLM model names
+    if "llm_models" not in st.session_state:
+        st.session_state.llm_models = list_ollama_models(families={"llama"})
+    
+    # Retrieve available embedding model names
+    if "bert_models" not in st.session_state:
+        st.session_state.bert_models = list_ollama_models(families={"bert", "nomic-bert"})
 
     # Store error from settings validation
     if "settings_error_message" not in st.session_state:
@@ -108,21 +118,26 @@ def persist_state() -> None:
     if "response_written" not in st.session_state:
         st.session_state.response_written = True
 
-    # Initialize RAG
-    if "rag" not in st.session_state:
-        st.session_state.rag = RAG(
-            collection_name=RAGConfig.COLLECTION_NAME,
-            persist_directory=RAGConfig.PERSIST_DIRECTORY,
-            embeddings_model=RAGConfig.EMBEDDINGS_MODEL,
-            cleanup_collection=RAGConfig.CLEANUP_COLLECTION
-        )
-
     # Initialize chat history
     if "messages" not in st.session_state:
         st.session_state.messages = [{
             "role": "assistant",
             "content": ChatConfig.WELCOME_MESSAGE
         }]
+
+
+def all_models_available() -> bool:
+    """
+    Check whether all the necessary Ollama models are available (i.e. pulled) locally. 
+
+    Returns
+    -------
+        bool
+            Indicates whether chat can be initialized.
+    """
+    return all(
+        len(st.session_state[key]) > 0 for key in ["bert_models", "llm_models"]
+    )
 
 
 def page_config(title: str) -> None:
@@ -191,7 +206,7 @@ def basic_settings() -> None:
     """
     Basic settings widget.
     """
-    with st.expander(label="Basic configuration", icon=":material/settings:", expanded=True):
+    with st.expander(label="Basic configuration", icon=":material/settings:", expanded=all_models_available()):
         options_map = {
             False: ":material/public_off: Existing knowledge",
             True: ":material/travel_explore: Search websites"
@@ -435,6 +450,7 @@ def rag_settings() -> None:
     RAG settings widget.
     """
     with st.expander(label="RAG configuration", icon=":material/library_books:"):
+        
         options_map = {
             "mmr": "MMR",
             "similarity_score_threshold": "Similarity"
@@ -455,6 +471,15 @@ def rag_settings() -> None:
                 **Similarity** search retrieves **all the closest matches**,
                 aditionally **MMR** considers their novelty to **avoid redundancy**.
                 """
+        )
+
+        st.selectbox(
+            label="Embedding model to use",
+            options=st.session_state.bert_models,
+            key="rag__embedding_model",
+            index=0,
+            on_change=settings_change_callback,
+            disabled=len(st.session_state.bert_models) == 1
         )
 
         st.select_slider(
@@ -572,6 +597,16 @@ def llm_settings() -> None:
     LLM settings widget.
     """
     with st.expander(label="LLM configuration", icon=":material/network_intelligence:"):
+        
+        st.selectbox(
+            label="Ollama model to use",
+            options=st.session_state.llm_models,
+            key="llm__generative_model",
+            index=0,
+            on_change=settings_change_callback,
+            disabled=len(st.session_state.llm_models) == 1
+        )
+        
         options_map = {
             0.0: "Deterministic",
             1.0: "Creative"
@@ -629,10 +664,23 @@ def sidebar() -> None:
             st.caption("Modify settings to control behaviour of your assistant")
 
             # Display status message
-            if not st.session_state.chat_loaded:
+            if not st.session_state.bert_models:
+                st.error(
+                    "No [embedding models](%s) available" %
+                    "https://ollama.com/search?c=embedding"
+                )
+
+            elif not st.session_state.llm_models:
+                st.error(
+                    "No [generative models](%s) available" %
+                    "https://ollama.com/search"
+            )
+            elif not st.session_state.chat_loaded:
                 st.warning("Please wait until chat widget is fully loaded")
+
             elif st.session_state.settings_error_message:
                 st.error(st.session_state.settings_error_message)
+
             else:
                 st.success("Settings configured successfully")
 
@@ -848,7 +896,7 @@ def llm_settings_submitted() -> bool:
         # Initialize LLM with modified settings
         st.session_state.llm = LLM(
             system_prompt=LLMConfig.SYSTEM_PROMPT,
-            model_variant=LLMConfig.MODEL_VARIANT,
+            model_variant=st.session_state.settings["llm"]["generative_model"],
             temperature=st.session_state.settings["llm"]["temperature"],
             max_tokens=st.session_state.settings["llm"]["max_tokens"],
             keep_alive=LLMConfig.KEEP_ALIVE,
@@ -872,7 +920,7 @@ def rag_settings_submitted() -> bool:
     modified_keys = [key for key in modified_settings("rag")]
 
     # LLM does not exist or submit is required
-    if modified_keys:
+    if "rag" not in st.session_state or modified_keys:
 
         # Flag required submit
         st.session_state.settings_submit_required = True
@@ -894,6 +942,14 @@ def rag_settings_submitted() -> bool:
 
             # Assign most recent value from the control
             st.session_state.settings["rag"][key] = st.session_state[f"rag__{key}"]
+    
+        # Initialize RAG
+        st.session_state.rag = RAG(
+            embedding_model=st.session_state.settings["rag"]["embedding_model"],
+            collection_name=RAGConfig.COLLECTION_NAME,
+            persist_directory=RAGConfig.PERSIST_DIRECTORY,
+            cleanup_collection=RAGConfig.CLEANUP_COLLECTION
+        )
 
     # Indicate success
     return True
@@ -932,7 +988,7 @@ def crawler_settings_submitted() -> bool:
 
         if connection_error:
             # Update error message
-            st.session_state.settings_error_message = f"Connection with the URL failed: {connection_error}"
+            st.session_state.settings_error_message = connection_error
 
             # Flag ongoing rerun to skip settings validation and show error status
             st.session_state.settings_rerun_in_progress = True
@@ -1202,6 +1258,10 @@ async def chat_widget() -> None:
 
         # Rerun to enable all previously disabled controls including chat input
         st.rerun()
+
+    # Chat cannot work without necessary models pulled
+    if not all_models_available():
+        st.stop()
 
     # Update flags as soon as chat widget is loaded
     if not st.session_state.chat_loaded:
