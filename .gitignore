@@ -10,5 +10,5 @@
 # Ignore any __pychache__ folders
 **/__pycache__
 
-# Ignore the test.py file
-test.py
+# Ignore any test files
+test*
