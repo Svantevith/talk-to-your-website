@@ -15,6 +15,7 @@ This makes the application an excellent choice for research, knowledge managemen
 ## Features
 
 - Deep crawling solution from Crawl4AI precisely extracts AI-optimized content from beyond a single webpage. 
+- Retain session data and browser fingerprints through Playwright-managed Chromium browser and custom user profiles. 
 - Splitting documents into chunks with Langchain keeps context intact, while ensuring token importance.
 - Chroma database client persists vector stores on disk as locally available knowledgebase.
 - Build efficient vectors stores with Ollama embedding models trained on very large sentence-level datasets.
@@ -40,6 +41,15 @@ cd talk-to-your-website
 pip install -r requirements.txt
 ```
 
+## Configuration
+
+Modules and scripts share the `src/config.py` configuration file, where developers can control constant attributes in the static configuration classes. 
+ - Adjust exposed attributes to control functionality of the application.
+
+Persistent Chromium profiles let managed browser use your authentic digital identity with logins, preferences, cookies and other session data.
+ - Create a custom `[user data directory](https://docs.crawl4ai.com/advanced/identity-based-crawling/#1-managed-browsers-your-digital-identity-solution)`
+ - Update the `CHROMIUM_PROFILE` environmental variable with path to the user data directory
+
 ## Usage
 
 Launch the chat application with the following command in the console:
@@ -49,10 +59,6 @@ streamlit run main.py
 ```
 
 The chat application will be available at `http://localhost:8501`
-
-## Configuration
-
-Modules and scripts share the `src/config.py` configuration file, where developers can control constant attributes in the static configuration classes. 
 
 ## Project Structure
 

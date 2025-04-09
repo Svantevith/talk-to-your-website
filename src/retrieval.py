@@ -126,7 +126,7 @@ class RAG():
         """
         # Debugging
         print(
-            f"\n=== Window size: {window_size}, Window overlap: {window_overlap} ===\n"
+            f"=== Window size: {window_size}, Window overlap: {window_overlap} ===\n"
         )
 
         # RAGs favor segmented documents as input.

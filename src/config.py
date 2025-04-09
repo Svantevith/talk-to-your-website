@@ -1,5 +1,9 @@
+import os
+from dotenv import load_dotenv
 from typing import Final, Union
 
+# Load environmental variables
+load_dotenv()
 
 class ImmutableMeta(type):
     """
@@ -95,6 +99,9 @@ class CrawlerConfig(metaclass=ImmutableMeta):
     # Deduplication factor (must be between 0.0 and 1.0) for the keyword extraction. 
     # Lower values are better for deterministic search.
     KW_DEDUP: Final[float] = 0.2
+
+    # User data directory to persist profile session data with managed Chromium browser.
+    CHROMIUM_PROFILE: Final[str] = os.getenv("CHROMIUM_PROFILE")
 
 
 class RAGConfig(metaclass=ImmutableMeta):

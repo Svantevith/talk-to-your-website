@@ -66,6 +66,10 @@ def persist_state() -> None:
             }
         }
     
+    if "crawler" not in st.session_state:
+        # Initialize crawler
+        st.session_state.crawler = DeepCrawler(chromium_profile=CrawlerConfig.CHROMIUM_PROFILE)
+    
     # Retrieve available LLM model names
     if "llm_models" not in st.session_state:
         st.session_state.llm_models = list_ollama_models(families={"llama"})
@@ -424,15 +428,12 @@ def crawler_settings() -> None:
                 on_change=settings_change_callback
             )
 
-            if st.session_state.bfs_with_qds_settings:
-                if st.session_state.crawler__enabled:
-                    st.warning(
-                        "Settings are identical to the previous query-driven search"
-                    )
-
-                st.caption(
-                    "Would you like to run comprehensive search **without adjustments**?"
+            if st.session_state.crawler__enabled:
+                st.info(
+                    "Reduce this value to **prevent shallow exploration**"
                 )
+
+            if st.session_state.bfs_with_qds_settings:
 
                 st.checkbox(
                     label="Confirm subsequent iteration",
@@ -443,6 +444,15 @@ def crawler_settings() -> None:
                     ),
                     on_change=settings_change_callback
                 )
+
+                st.caption(
+                    "Would you like to run comprehensive search **without adjustments**?"
+                )
+
+                if st.session_state.crawler__enabled:
+                    st.warning(
+                        "Settings are identical to the previous query-driven search"
+                    )
 
 
 def rag_settings() -> None:
@@ -983,12 +993,15 @@ def crawler_settings_submitted() -> bool:
             # Indicate error
             return False
 
-        # Retrieve connection errors
-        connection_error = validate_url(st.session_state.crawler__url)
+        # Verify if URL exists
+        # Authentication and redirects are handled implicitly by the crawler using managed browser with persistent chroma profile
+        http_code, http_message = validate_url(st.session_state.crawler__url)
 
-        if connection_error:
+        # Connection was never established
+        if http_code == -1:
+            
             # Update error message
-            st.session_state.settings_error_message = connection_error
+            st.session_state.settings_error_message = http_message
 
             # Flag ongoing rerun to skip settings validation and show error status
             st.session_state.settings_rerun_in_progress = True
@@ -1031,12 +1044,6 @@ def crawler_settings_submitted() -> bool:
 
                 # Indicate error
                 return False
-
-            if "crawler" not in st.session_state or st.session_state.settings["crawler"]["url"] != st.session_state.crawler__url:
-                # Initialize crawler
-                st.session_state.crawler = DeepCrawler(
-                    start_url=st.session_state.crawler__url
-                )
 
             # Update settings
             for key in modified_keys:
@@ -1113,6 +1120,7 @@ async def retrieve_knowledgebase(keywords: list[str] = []) -> None:
     # Populate collection with vectors
     async for document in st.session_state.crawler.crawl(
         # Streaming mode is recommended for real-time applications
+        start_url=st.session_state.settings["crawler"]["url"],
         stream_mode=True,
         max_depth=st.session_state.settings["crawler"]["max_depth"],
         max_pages=st.session_state.settings["crawler"]["max_pages"],

@@ -126,7 +126,7 @@ def get_vector_store_ids(persist_directory: str) -> set[str]:
     }
 
 
-def connected_to_internet(host: str = "8.8.8.8", port: int = 53, timeout: float = 3.0) -> bool:
+def connected_to_internet(host: str = "8.8.8.8", port: int = 443, timeout: float = 1.0) -> bool:
     """
     Check if connection to internet can be established.
 
@@ -135,7 +135,7 @@ def connected_to_internet(host: str = "8.8.8.8", port: int = 53, timeout: float 
         host: str 
             Host to connect with, by default 8.8.8.8 (google-public-dns-a.google.com)
         port : int 
-            Port to use, by default 53 (DNS uses TCP and UDP on port 53, so connections are simple and fast)
+            Port to use, by default 443 (firewalls, proxies, and VPNs must allow this port to allow secure HTTP traffic).
         timeout : float
             The maximum number of seconds to wait while trying to connect to a host.
 
@@ -148,7 +148,7 @@ def connected_to_internet(host: str = "8.8.8.8", port: int = 53, timeout: float 
         with socket.create_connection(address=(host, port), timeout=timeout):
             return True
     except socket.error as e:
-        print(f"=== Connection with the host {host} over port {port} could not be established: {e}")
+        print(f"=== Connection with the host {host} over port {port} could not be established: {e} ===")
         return False
 
 
@@ -164,7 +164,7 @@ def get_timestamp() -> str:
     return datetime.now().strftime(r'%Y%m%d%H%M%S%f')[:16]
 
 
-def validate_url(url: str) -> str:
+def validate_url(url: str) -> tuple[int, str]:
     """
     Validate whether URL address exists.
 
@@ -175,22 +175,21 @@ def validate_url(url: str) -> str:
 
     Returns
     -------
+        int 
+            Http status code or -1 if connection was not established.
+
         str
-            Exception message if errors occurred.
+            Http reason or exception message if caught.
     """
     try:
         # With 'stream' option enabled we avoid body being immediately downloaded unless explicitly requested
         r = requests.get(url, stream=True, allow_redirects=True, verify=True)
 
         # Indicate success
-        if 200 <= r.status_code < 400:
-            return ""
-
-        # Indicate failure
-        return f"Connection with {url} failed with status {r.status_code}: {r.reason}"
+        return r.status_code, r.reason
 
     except (ConnectionRefusedError, requests.ConnectionError, requests.exceptions.MissingSchema) as e:
-        return f"Connection with {url} could not be established: {e}"
+        return -1, f"Connection with the URL could not be established: {e}"
 
 
 def extract_keywords(text, ngram_size: int = 1, dedup_factor: float = 0.2, kw_prop: float = 0.05, kw_num: int = 3) -> list[str]:

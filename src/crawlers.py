@@ -1,3 +1,4 @@
+import os
 from typing import Union
 from collections.abc import AsyncGenerator
 from langchain.docstore.document import Document
@@ -6,19 +7,20 @@ from crawl4ai import AsyncWebCrawler, BFSDeepCrawlStrategy, BestFirstCrawlingStr
 
 class DeepCrawler:
     def __init__(
-        self,
-        start_url: str
+        self, 
+        chromium_profile: str = ""
     ):
         """
         DeepCrawler objects are used to explore websites beyond a single page and extract relevant content.
 
         Parameters
         ----------
-            start_url : str
-                Website to start crawling from.
+            str : chromium_profile
+                Path to the user data directory persisting Chromium profile session data, including authentication cookies, local storage, etc.
         """
-        # Basic configuration
-        self.start_url = start_url
+        # Set crawler attributes
+        self.chromium_profile = chromium_profile
+        self.use_managed_browser = os.path.exists(chromium_profile)
 
         # Configure browsing environment
         self.__browser_config = BrowserConfig(
@@ -29,15 +31,24 @@ class DeepCrawler:
             # Disables images, possibly speeding up text-only crawls.
             text_mode=True,
             # Turns off certain background features for performance.
-            light_mode=True
+            light_mode=True,
+            # (Default) Chromium suports managed browsers with Playwright
+            browser_type="chromium"
         )
 
+        if self.use_managed_browser:
+            # Managed Browsers use browser profiles to persist session data, including local storage and authentication cookies.
+            self.__browser_config.use_managed_browser = True
+            self.__browser_config.use_persistent_context = True
+            self.__browser_config.user_data_dir = self.chromium_profile
+    
     async def crawl(
         self,
+        start_url: str,
         stream_mode: bool = True,
         max_depth: int = 0,
         max_pages: Union[None, int] = 1,
-        min_score: Union[None, float] = 0.3,
+        min_score: Union[None, float] = 0.2,
         kw_weight: float = 0.7,
         kw_list: list[str] = []
     ) -> AsyncGenerator[Document]:
@@ -46,6 +57,8 @@ class DeepCrawler:
 
         Parameters
         ----------
+            start_url : str
+                Website to start crawling from.
             stream_mode : bool
                 Whether to use real-time (True) or batch (False) processing.
             max_depth : int
@@ -65,11 +78,11 @@ class DeepCrawler:
                 Generator of langchain's documents.
         """
         # Debugging
-        print("\n=== Crawling starts ===")
+        print("\n=== Crawling starts ===\n")
 
         # Debugging
         print(
-            f"=== URL: {self.start_url}, Streaming mode: {stream_mode}, Max depth: {max_depth}, Max pages: {max_pages}, Min score: {min_score}, Keywords list: {kw_list}, Keywords weight: {kw_weight} ===\n"
+            f"=== URL: {start_url}, Streaming mode: {stream_mode}, Max depth: {max_depth}, Max pages: {max_pages}, Min score: {min_score}, Keywords list: {kw_list}, Keywords weight: {kw_weight} ===\n"
         )
 
         if kw_list:
@@ -114,6 +127,9 @@ class DeepCrawler:
             only_text=True,
             # Logs additional runtime details (overlaps with the BrowserConfig’s verbosity)
             verbose=True,
+            # Simulates a user-like experience, randomizes user agent, navigator, interactions and timings
+            # NOT a substitute for true user-based sessions! Fully legitimate identity-based solution is guaranteed using Managed Browsers.
+            magic=not self.use_managed_browser,
             # Use lxml library for faster HTML parsing to improve scraping performance, especially for large or complex pages
             scraping_strategy=LXMLWebScrapingStrategy(),
             # Configure crawling strategy to extract content precisely
@@ -124,11 +140,17 @@ class DeepCrawler:
         async with AsyncWebCrawler(config=self.__browser_config) as crawler:
             if stream_mode:
                 # When streaming use 'async for' to process each result as soon as it is available
-                async for result in await crawler.arun(self.start_url, config=run_config):
+                async for result in await crawler.arun(
+                    url=start_url, 
+                    config=run_config
+                ):
                     yield await self.__process_result(result)
             else:
                 # Processing all results in batch after completion
-                for result in await crawler.arun(self.start_url, config=run_config):
+                for result in await crawler.arun(
+                    url=start_url,
+                    config=run_config
+                ):
                     yield await self.__process_result(result)
 
         # Debugging
@@ -146,17 +168,29 @@ class DeepCrawler:
         Returns
         -------
             Document
-                Langchain's document.
+                Langchain's document; page content is empty if crawling failed.
         """
         # Initialize page content
         page_content = ""
 
-        if result.success:
+        if result.status_code == 200:
+            
             # Retrieve markdown
             page_content = result.markdown
 
+            # Debugging
+            print(f"=== Successfully crawled {result.url} ===\n")
+
         else:
-            print(f"Failed to crawl {result.url}: {result.error_message}")
+            # Prepare failure message
+            fail_message = f"Failed to crawl {result.url} with status code {result.status_code}"
+            
+            if result.error_message:
+                # Append optionally given error message
+                fail_message += f": {result.error_message}"
+            
+            # Debugging
+            print(f"=== {fail_message} ===\n")
 
         # Structure metadata for the document
         structured_metadata = {
@@ -168,7 +202,7 @@ class DeepCrawler:
             }
         }
 
-        # Return langchain's document
+        # Return langchain's document (page content is empty if crawl failed)
         return Document(
             page_content,
             metadata=structured_metadata
