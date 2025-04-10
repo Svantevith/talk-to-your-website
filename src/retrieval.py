@@ -1,6 +1,6 @@
 from hashlib import sha256
 from typing import Literal, Union
-from chromadb import EphemeralClient, PersistentClient
+from chromadb.api.client import Client
 from chromadb.config import Settings
 from chromadb.errors import DuplicateIDError
 from langchain.docstore.document import Document
@@ -9,76 +9,74 @@ from langchain_ollama import OllamaEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 
-class RAG():
+class RAG(Client):
     def __init__(
         self,
-        embedding_model: str = "all-minilm:latest",
-        collection_name: str = "",
         persist_directory: str = ""
     ) -> None:
         """
-        RAG objects use Ollama embeddings model to retrieve context for the LLMs based on the collected knowledgebase. 
+        RAG objects use Ollama embeddings model to retrieve context for the LLMs from ephemeral memory or persisted Chroma vector store. 
 
         Parameters
-        ---------- 
-            embedding_model : str
-                Ollama model to generate embeddings.    
-            collection_name : str
-                Name for the collection.
+        ----------   
             persist_directory : str
                 Directory where to persist the collection. 
         """
-        # Collection configuration
-        self.embedding_model = embedding_model
-        self.collection_name = collection_name[:63]
-        self.persist_directory = persist_directory
-
-        # Chroma client instance
-        self.__client = self.__get_chroma_client()
-
-        # Clear system cache
-        self.__client.clear_system_cache()
-
-        # Chroma integrates as local vector store
-        self.__collection = Chroma(
-            collection_name=self.collection_name,
-            embedding_function=OllamaEmbeddings(model=self.embedding_model),
-            client=self.__client,
-            # Prevent negative scores
-            collection_metadata={"hnsw:space": "cosine"}
-        )
-
-    def __get_chroma_client(self) -> Union[PersistentClient, EphemeralClient]:
-        """
-        Return appropriate Chroma client configuration. 
-
-        Returns
-        -------
-            Union[PersistentClient, EphemeralClient]
-                Chroma Client instance.
-        """
-        # Configure client settings
-        client_settings = Settings(
+        # Initially prepare settings for ephemeral client
+        client_settings: Settings = Settings(
+            is_persistent=False,
             # Do not allow Chroma to collect anonymous usage data
             anonymized_telemetry=False,
-            allow_reset=True
+            # Do not allow flushing database
+            allow_reset=False
         )
 
-        if self.persist_directory:
-            # Return persistent instance
-            return PersistentClient(
-                path=self.persist_directory,
-                settings=client_settings
+        if persist_directory:
+            # Use persistent client
+            client_settings.is_persistent = True
+            client_settings.persist_directory = persist_directory
+
+        # Instantiate client session
+        super().__init__(settings=client_settings)
+
+        # Chroma integrates as local vector store
+        self.__vector_store: Union[None, Chroma] = None
+
+    def __set_vector_store(
+        self,
+        collection_name: str,
+        embedding_model: str = "all-minilm:latest",
+    ) -> None:
+        """
+        Create, update or preserve vector store for populating collection and retrieving context.
+
+        Parameters
+        ----------
+            collection_name : str
+                Collection to populate with the document.
+            embedding_model : str
+                Ollama model to generate embeddings.  
+        """
+        # Get vector store only when collection changes to prevent numerous loads from database when retrieving context
+        if self.__vector_store is None or self.__vector_store._collection.name != collection_name:
+
+            # Clear system cache
+            self.clear_system_cache()
+
+            # Set vector store only when collection changes to prevent numerous loads from database while retrieving context
+            self.__vector_store = Chroma(
+                client=self,
+                collection_name=collection_name,
+                embedding_function=OllamaEmbeddings(model=embedding_model),
+                # Prevent negative scores
+                collection_metadata={"hnsw:space": "cosine"}
             )
-
-        # Return in-memory instance
-        return EphemeralClient(
-            settings=client_settings
-        )
 
     async def add_to_collection(
         self,
         document: Document,
+        collection_name: str,
+        embedding_model: str = "all-minilm:latest",
         window_size: int = 256,
         window_overlap: float = 0.2
     ) -> None:
@@ -90,6 +88,10 @@ class RAG():
         ----------
             document : Document
                 Langchain's document.
+            collection_name : str
+                Collection to populate with the document.
+            embedding_model : str
+                Ollama model to generate embeddings.  
             window_size : int
                 Window size for text segmentation.
             window_overlap : float
@@ -97,8 +99,11 @@ class RAG():
         """
         # Debugging
         print(
-            f"=== Window size: {window_size}, Window overlap: {window_overlap} ===\n"
+            f"=== Collection name: {collection_name}, Embedding model: {embedding_model}, Window size: {window_size}, Window overlap: {window_overlap} ===\n"
         )
+
+        # Create, update or preserve collection
+        self.__set_vector_store(collection_name, embedding_model)
 
         # RAGs favor segmented documents as input.
         text_splitter = RecursiveCharacterTextSplitter(
@@ -110,38 +115,41 @@ class RAG():
                 # Split at sentence boundaries (., ?, !)
                 ".", ",", "?", "!",
                 # Zero-width space
-                "\u200b", 
+                "\u200b",
                 # Fullwidth comma
-                "\uff0c", 
+                "\uff0c",
                 # Ideographic comma
-                "\u3001", 
+                "\u3001",
                 # Fullwidth full stop
-                "\uff0e", 
+                "\uff0e",
                 # Ideographic full stop
-                "\u3002",  
+                "\u3002",
                 # Ensure that if no larger splits work, words and characters get split last
                 " ", "",
             ],
         )
-        
+
         # Sliding window generates overlapping chunks for better contextual coherence
         for doc in text_splitter.split_documents([document]):
             try:
                 # Asynchronously add text segments to the collection
-                await self.__collection.aadd_documents(
+                await self.__vector_store.aadd_documents(
                     # Function is expecting list of documents as input
                     documents=[doc,],
                     # Hash of page content serves as unique id to avoid duplicate entries
                     ids=[sha256(doc.page_content.encode()).hexdigest(),]
                 )
-                
+
             except DuplicateIDError as e:
                 # Duplicate documents are skipped, but exception is raised
-                print(f"=== Adding document to {self.collection_name} collection failed. {e} ===")
+                print(
+                    f"=== Adding document to {collection_name} collection failed. {e} ===")
 
     def get_context(
         self,
         query: str,
+        collection_name: str,
+        embedding_model: str = "all-minilm:latest",
         search_function: Literal[
             "mmr",
             "similarity_score_threshold"
@@ -158,6 +166,10 @@ class RAG():
         ----------
             query : str
                 Query to respond.
+            collection_name : str
+                Collection to search for the context.
+            embedding_model : str
+                Ollama model to generate embeddings.  
             search_function : Literal["mmr", "similarity_score_threshold"]
                 Search function for document retrieval.
             top_k : int
@@ -176,8 +188,23 @@ class RAG():
         """
         # Debugging
         print(
-            f"=== Query: {query}, Search function: {search_function}, Top K: {top_k}, Fetch K: {fetch_k}, Min Diversity: {min_diversity}, Min Similarity: {min_similarity} ===\n"
+            f"=== Query: {query}, ollection name: {collection_name}, Embedding model: {embedding_model}, Search function: {search_function}, Top K: {top_k}, Fetch K: {fetch_k}, Min Diversity: {min_diversity}, Min Similarity: {min_similarity} ===\n"
         )
+
+        # Create, update or preserve collection
+        self.__set_vector_store(collection_name, embedding_model)
+
+        # Get number of documents in the collection
+        num_docs = len(self.__vector_store.get()['ids'])
+
+        if num_docs == 0:
+            # Debugging
+            print(
+                f"=== There are no documents in the {collection_name} collection, please use add_to_collection() method to populate it ==="
+            )
+
+            # Return no context
+            return ""
 
         # Documents retrieval
         search_params = {
@@ -198,14 +225,14 @@ class RAG():
             })
 
         # Retrieve the top-k documents based on the search configuration.
-        retriever = self.__collection.as_retriever(
+        retriever = self.__vector_store.as_retriever(
             search_type=search_function,
             search_kwargs=search_params
         )
 
         # Debugging
         print(
-            f"=== Number of documents in the {self.collection_name} collection: {len(self.__collection.get()['ids'])} ==="
+            f"=== Number of documents in the {collection_name} collection: {num_docs} ==="
         )
 
         # Retrieve relevant documents

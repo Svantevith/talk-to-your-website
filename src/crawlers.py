@@ -8,19 +8,19 @@ from crawl4ai import AsyncWebCrawler, BFSDeepCrawlStrategy, BestFirstCrawlingStr
 class DeepCrawler:
     def __init__(
         self, 
-        chromium_profile: str = ""
+        user_data_dir: str = ""
     ):
         """
         DeepCrawler objects are used to explore websites beyond a single page and extract relevant content.
 
         Parameters
         ----------
-            str : chromium_profile
+            str : user_data_dir
                 Path to the user data directory persisting Chromium profile session data, including authentication cookies, local storage, etc.
         """
         # Set crawler attributes
-        self.chromium_profile = chromium_profile
-        self.use_managed_browser = os.path.exists(chromium_profile)
+        self.user_data_dir = user_data_dir
+        self.use_managed_browser = os.path.exists(user_data_dir)
 
         # Configure browsing environment
         self.__browser_config = BrowserConfig(
@@ -40,7 +40,7 @@ class DeepCrawler:
             # Managed Browsers use browser profiles to persist session data, including local storage and authentication cookies.
             self.__browser_config.use_managed_browser = True
             self.__browser_config.use_persistent_context = True
-            self.__browser_config.user_data_dir = self.chromium_profile
+            self.__browser_config.user_data_dir = self.user_data_dir
     
     async def crawl(
         self,

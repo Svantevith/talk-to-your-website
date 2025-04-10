@@ -15,8 +15,13 @@ if __name__ == "__main__":
         asyncio.set_event_loop(loop)
     
     finally:
+        # Create a task to run chat
+        task = loop.create_task(run_chat())
+        
         # Wait for the of pending tasks to complete
-        loop.run_until_complete(run_chat())
+        pending = asyncio.all_tasks(loop)
+        group = asyncio.gather(*pending)
+        loop.run_until_complete(group)
 
         # Shutdown the loop
         loop.close()

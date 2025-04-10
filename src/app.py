@@ -68,7 +68,11 @@ def persist_state() -> None:
     
     if "crawler" not in st.session_state:
         # Initialize crawler
-        st.session_state.crawler = DeepCrawler(chromium_profile=CrawlerConfig.USER_DATA_DIR)
+        st.session_state.crawler = DeepCrawler(user_data_dir=CrawlerConfig.USER_DATA_DIR)
+    
+    if "rag" not in st.session_state:
+        # Initialize RAG
+        st.session_state.rag = RAG(persist_directory=RAGConfig.PERSIST_DIRECTORY)
     
     # Retrieve available LLM model names
     if "llm_models" not in st.session_state:
@@ -930,7 +934,7 @@ def rag_settings_submitted() -> bool:
     modified_keys = [key for key in modified_settings("rag")]
 
     # LLM does not exist or submit is required
-    if "rag" not in st.session_state or modified_keys:
+    if modified_keys:
 
         # Flag required submit
         st.session_state.settings_submit_required = True
@@ -952,13 +956,6 @@ def rag_settings_submitted() -> bool:
 
             # Assign most recent value from the control
             st.session_state.settings["rag"][key] = st.session_state[f"rag__{key}"]
-    
-        # Initialize RAG
-        st.session_state.rag = RAG(
-            embedding_model=st.session_state.settings["rag"]["embedding_model"],
-            collection_name=RAGConfig.COLLECTION_NAME,
-            persist_directory=RAGConfig.PERSIST_DIRECTORY
-        )
 
     # Indicate success
     return True
@@ -1120,16 +1117,18 @@ async def retrieve_knowledgebase(keywords: list[str] = []) -> None:
     async for document in st.session_state.crawler.crawl(
         # Streaming mode is recommended for real-time applications
         start_url=st.session_state.settings["crawler"]["url"],
-        stream_mode=True,
         max_depth=st.session_state.settings["crawler"]["max_depth"],
         max_pages=st.session_state.settings["crawler"]["max_pages"],
         min_score=st.session_state.settings["crawler"]["min_score"],
         kw_weight=st.session_state.settings["crawler"]["kw_weight"],
-        kw_list=keywords
+        kw_list=keywords,
+        stream_mode=True
     ):
         if document.page_content:
             await st.session_state.rag.add_to_collection(
                 document,
+                collection_name=RAGConfig.COLLECTION_NAME,
+                embedding_model=st.session_state.settings["rag"]["embedding_model"],
                 window_size=st.session_state.settings["rag"]["window_size"],
                 window_overlap=st.session_state.settings["rag"]["window_overlap"]
             )
@@ -1176,6 +1175,8 @@ async def chat_response(user_prompt: str) -> None:
     # Retrieve context with RAG
     context = st.session_state.rag.get_context(
         query=user_prompt,
+        collection_name=RAGConfig.COLLECTION_NAME,
+        embedding_model=st.session_state.settings["rag"]["embedding_model"],
         search_function=st.session_state.settings["rag"]["search_function"],
         top_k=st.session_state.settings["rag"]["top_k"],
         fetch_k=st.session_state.settings["rag"]["fetch_k"],
@@ -1219,7 +1220,6 @@ async def chat_widget() -> None:
 
             # Chat is not yet configured
             if not settings_configured():
-                
                 # Rerun to display error status, disable chat input and options, and enable submit button if required
                 st.rerun()
 
