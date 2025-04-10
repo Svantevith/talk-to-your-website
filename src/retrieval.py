@@ -14,8 +14,7 @@ class RAG():
         self,
         embedding_model: str = "all-minilm:latest",
         collection_name: str = "",
-        persist_directory: str = "",
-        cleanup_collection: bool = False
+        persist_directory: str = ""
     ) -> None:
         """
         RAG objects use Ollama embeddings model to retrieve context for the LLMs based on the collected knowledgebase. 
@@ -27,15 +26,12 @@ class RAG():
             collection_name : str
                 Name for the collection.
             persist_directory : str
-                Directory where to persist collections.
-            cleanup_collection : bool
-                Remove created collection and persisted artifacts when object is destroyed.
+                Directory where to persist the collection. 
         """
         # Collection configuration
         self.embedding_model = embedding_model
         self.collection_name = collection_name[:63]
         self.persist_directory = persist_directory
-        self.cleanup_collection = cleanup_collection
 
         # Chroma client instance
         self.__client = self.__get_chroma_client()
@@ -51,31 +47,6 @@ class RAG():
             # Prevent negative scores
             collection_metadata={"hnsw:space": "cosine"}
         )
-
-    def __del__(self) -> None:
-        """
-        Remove all collections and associated artifacts when object is destroyed.  
-        """
-        try:
-            # Clear system cache
-            self.__client.clear_system_cache()
-
-            # Ephemeral clients hold vector stores in memory for each session and transient data is removed automatically
-            if self.cleanup_collection and self.persist_directory:
-
-                # Each client session has a unique vector store id inside the chroma database (chromadb.sqlite3) and a corresponding directory to remove
-                self.__client.reset()
-
-                # Debugging
-                print(
-                    f"=== Collection {self.collection_name} was deleted successfully ==="
-                )
-
-        except Exception as e:
-            # Debugging
-            print(
-                f"=== Exception caught when removing {self.collection_name} collection: {e} ==="
-            )
 
     def __get_chroma_client(self) -> Union[PersistentClient, EphemeralClient]:
         """
@@ -163,6 +134,7 @@ class RAG():
                     # Hash of page content serves as unique id to avoid duplicate entries
                     ids=[sha256(doc.page_content.encode()).hexdigest(),]
                 )
+                
             except DuplicateIDError as e:
                 # Duplicate documents are skipped, but exception is raised
                 print(f"=== Adding document to {self.collection_name} collection failed. {e} ===")

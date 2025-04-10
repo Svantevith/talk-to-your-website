@@ -101,7 +101,7 @@ class CrawlerConfig(metaclass=ImmutableMeta):
     KW_DEDUP: Final[float] = 0.2
 
     # User data directory to persist profile session data with managed Chromium browser.
-    CHROMIUM_PROFILE: Final[str] = os.getenv("CHROMIUM_PROFILE")
+    USER_DATA_DIR: Final[str] = os.getenv("CHROMIUM_PROFILE")
 
 
 class RAGConfig(metaclass=ImmutableMeta):
@@ -125,7 +125,7 @@ class RAGConfig(metaclass=ImmutableMeta):
 
     # Collections are automatically saved & loaded from the memory.
     # Persistent client allows to handle changing context retrieval parameters without the need to create new client session.
-    PERSIST_DIRECTORY: Final[str] = "./data/chroma_db"
+    PERSIST_DIRECTORY: Final[str] = os.getenv("CHROMA_DIRECTORY")
 
     # Return top-k relevant documents to the LLM.
     # Sets upper limit (must be greater than or equal to 3) for the slider.
@@ -134,11 +134,6 @@ class RAGConfig(metaclass=ImmutableMeta):
     # Amount of documents to pass to MMR algorithm.
     # Sets upper limit (must be greater than or equal to 30) for the slider.
     FETCH_K: Final[int] = 40
-
-    # Enable to delete collection and associated directories when RAG object is destroyed.
-    # Keep in mind that RAG object operates on single collection, thus only artifacts for that particular collection are deleted.
-    # Be aware that if there is no collection available, offline capabilities are restricted to the general LLM knowledge.
-    CLEANUP_COLLECTION: Final[bool] = True
 
 
 class LLMConfig(metaclass=ImmutableMeta):

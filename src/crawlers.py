@@ -144,19 +144,19 @@ class DeepCrawler:
                     url=start_url, 
                     config=run_config
                 ):
-                    yield await self.__process_result(result)
+                    yield self.__process_result(result)
             else:
                 # Processing all results in batch after completion
                 for result in await crawler.arun(
                     url=start_url,
                     config=run_config
                 ):
-                    yield await self.__process_result(result)
+                    yield self.__process_result(result)
 
         # Debugging
         print("=== Crawling finished ===\n")
 
-    async def __process_result(self, result: CrawlResult) -> Document:
+    def __process_result(self, result: CrawlResult) -> Document:
         """
         Process an individual crawling result. 
 

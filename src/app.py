@@ -68,7 +68,7 @@ def persist_state() -> None:
     
     if "crawler" not in st.session_state:
         # Initialize crawler
-        st.session_state.crawler = DeepCrawler(chromium_profile=CrawlerConfig.CHROMIUM_PROFILE)
+        st.session_state.crawler = DeepCrawler(chromium_profile=CrawlerConfig.USER_DATA_DIR)
     
     # Retrieve available LLM model names
     if "llm_models" not in st.session_state:
@@ -957,8 +957,7 @@ def rag_settings_submitted() -> bool:
         st.session_state.rag = RAG(
             embedding_model=st.session_state.settings["rag"]["embedding_model"],
             collection_name=RAGConfig.COLLECTION_NAME,
-            persist_directory=RAGConfig.PERSIST_DIRECTORY,
-            cleanup_collection=RAGConfig.CLEANUP_COLLECTION
+            persist_directory=RAGConfig.PERSIST_DIRECTORY
         )
 
     # Indicate success
