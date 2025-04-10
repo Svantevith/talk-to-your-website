@@ -188,7 +188,7 @@ class RAG(Client):
         """
         # Debugging
         print(
-            f"=== Query: {query}, ollection name: {collection_name}, Embedding model: {embedding_model}, Search function: {search_function}, Top K: {top_k}, Fetch K: {fetch_k}, Min Diversity: {min_diversity}, Min Similarity: {min_similarity} ===\n"
+            f"=== Query: {query}, Collection name: {collection_name}, Embedding model: {embedding_model}, Search function: {search_function}, Top K: {top_k}, Fetch K: {fetch_k}, Min Diversity: {min_diversity}, Min Similarity: {min_similarity} ===\n"
         )
 
         # Create, update or preserve collection
@@ -200,7 +200,7 @@ class RAG(Client):
         if num_docs == 0:
             # Debugging
             print(
-                f"=== There are no documents in the {collection_name} collection, please use add_to_collection() method to populate it ==="
+                f"=== Cannot retrieve context from empty {collection_name} collection, please use add_to_collection() method to populate it ==="
             )
 
             # Return no context

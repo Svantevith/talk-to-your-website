@@ -46,6 +46,7 @@ def persist_state() -> None:
             },
             "rag": {
                 # List all possible keys
+                "collection_name": "",
                 "embedding_model": "",
                 "search_function": "mmr",
                 "top_k": 2,
@@ -65,14 +66,14 @@ def persist_state() -> None:
                 "max_tokens": -2
             }
         }
-    
-    if "crawler" not in st.session_state:
-        # Initialize crawler
-        st.session_state.crawler = DeepCrawler(user_data_dir=CrawlerConfig.USER_DATA_DIR)
-    
+
+    # Initialize RAG
     if "rag" not in st.session_state:
-        # Initialize RAG
         st.session_state.rag = RAG(persist_directory=RAGConfig.PERSIST_DIRECTORY)
+    
+    # Initialize crawler
+    if "crawler" not in st.session_state:
+        st.session_state.crawler = DeepCrawler(user_data_dir=CrawlerConfig.USER_DATA_DIR)
     
     # Retrieve available LLM model names
     if "llm_models" not in st.session_state:
@@ -81,6 +82,14 @@ def persist_state() -> None:
     # Retrieve available embedding model names
     if "bert_models" not in st.session_state:
         st.session_state.bert_models = list_ollama_models(families={"bert", "nomic-bert"})
+    
+    # Retrieve list of available collections (automatically loaded when using persistent client)
+    if "collections" not in st.session_state:
+        st.session_state.collections = set([
+            # Prevent having empty list of collection names
+            RAGConfig.COLLECTION_NAME or "web_search_llm", 
+            *st.session_state.rag.list_collections()
+        ])
 
     # Store error from settings validation
     if "settings_error_message" not in st.session_state:
@@ -488,12 +497,21 @@ def rag_settings() -> None:
         )
 
         st.selectbox(
+            label="Collection to preserve",
+            options=sorted(st.session_state.collections),
+            key="rag__collection_name",
+            index=0,
+            on_change=settings_change_callback,
+            disabled=len(st.session_state.collections) == 1 or not ui_elements_enabled()
+        )
+
+        st.selectbox(
             label="Embedding model to use",
-            options=st.session_state.bert_models,
+            options=sorted(st.session_state.bert_models),
             key="rag__embedding_model",
             index=0,
             on_change=settings_change_callback,
-            disabled=len(st.session_state.bert_models) == 1
+            disabled=len(st.session_state.bert_models) == 1 or not ui_elements_enabled()
         )
 
         st.select_slider(
@@ -614,11 +632,11 @@ def llm_settings() -> None:
         
         st.selectbox(
             label="Ollama model to use",
-            options=st.session_state.llm_models,
+            options=sorted(st.session_state.llm_models),
             key="llm__generative_model",
             index=0,
             on_change=settings_change_callback,
-            disabled=len(st.session_state.llm_models) == 1
+            disabled=len(st.session_state.llm_models) == 1 or not ui_elements_enabled()
         )
         
         options_map = {
@@ -1127,7 +1145,7 @@ async def retrieve_knowledgebase(keywords: list[str] = []) -> None:
         if document.page_content:
             await st.session_state.rag.add_to_collection(
                 document,
-                collection_name=RAGConfig.COLLECTION_NAME,
+                collection_name=st.session_state.settings["rag"]["collection_name"],
                 embedding_model=st.session_state.settings["rag"]["embedding_model"],
                 window_size=st.session_state.settings["rag"]["window_size"],
                 window_overlap=st.session_state.settings["rag"]["window_overlap"]
@@ -1175,7 +1193,7 @@ async def chat_response(user_prompt: str) -> None:
     # Retrieve context with RAG
     context = st.session_state.rag.get_context(
         query=user_prompt,
-        collection_name=RAGConfig.COLLECTION_NAME,
+        collection_name=st.session_state.settings["rag"]["collection_name"],
         embedding_model=st.session_state.settings["rag"]["embedding_model"],
         search_function=st.session_state.settings["rag"]["search_function"],
         top_k=st.session_state.settings["rag"]["top_k"],
