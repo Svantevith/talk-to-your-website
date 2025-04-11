@@ -14,7 +14,7 @@ from src.models import LLM
 from src.config import ChatConfig, CrawlerConfig, RAGConfig, LLMConfig
 
 # Helper functions
-from utils.helper_functions import list_ollama_models, connected_to_internet, extract_keywords, validate_url, get_timestamp
+from utils.helper_functions import list_ollama_models, connected_to_internet, extract_keywords, validate_url, get_timestamp, is_valid_collection_name
 
 
 def persist_state() -> None:
@@ -85,11 +85,10 @@ def persist_state() -> None:
     
     # Retrieve list of available collections (automatically loaded when using persistent client)
     if "collections" not in st.session_state:
-        st.session_state.collections = set([
-            # Prevent having empty list of collection names
-            RAGConfig.COLLECTION_NAME or "web_search_llm", 
-            *st.session_state.rag.list_collections()
-        ])
+        # Store key-value pairs where name of the collection is the key, and value indicates whether it exists or not
+        st.session_state.collections = {
+            k: True for k in st.session_state.rag.list_collections()
+        }
 
     # Store error from settings validation
     if "settings_error_message" not in st.session_state:
@@ -204,6 +203,9 @@ def settings_change_callback() -> None:
 
 
 def submit_settings_callback() -> None:
+    """
+    Callback invoked when settings submit button is clicked.
+    """
     # Rerun on settings change to refresh the sidebar
     st.session_state.rerun_on_settings_change = True
 
@@ -212,11 +214,11 @@ def submit_settings_callback() -> None:
         st.session_state.bfs_pending = True
 
     # Rerun before BFS
+    print(st.session_state.bfs_pending)
     if connected_to_internet() and st.session_state.crawler__enabled and st.session_state.bfs_pending:
         # Indicate that crawl hasn't finished yet
-        st.session_state.bfs_pending = False
-        st.session_state.last_crawl_completed = False
         st.session_state.bfs_in_progress = True
+        st.session_state.last_crawl_completed = False
 
 
 def basic_settings() -> None:
@@ -468,11 +470,41 @@ def crawler_settings() -> None:
                     )
 
 
+def collection_already_exists() -> bool:
+    """
+    Indicate whether new collection already exists.
+    """
+    return st.session_state.new_collection in st.session_state.collections
+
+
+def add_collection_callback() -> None:
+    """
+    Callback invoked when add collection button is clicked.
+    """
+    # Indicate that new collection does not yet exist
+    st.session_state.collections[st.session_state.new_collection] = False
+    
+    # Update selection on the dropdown
+    st.session_state.rag__collection_name = st.session_state.new_collection
+
+
+def delete_collection_callback() -> None:
+    """
+    Callback invoked when delete collection button is clicked.
+    """
+    if st.session_state.collections[st.session_state.rag__collection_name]:
+        # Remove collection and associated artifacts from Chroma database 
+        st.session_state.rag.delete_collection_artifacts(st.session_state.rag__collection_name)
+
+    # Collection no loger exists
+    st.session_state.collections.pop(st.session_state.rag__collection_name)
+         
+
 def rag_settings() -> None:
     """
     RAG settings widget.
     """
-    with st.expander(label="RAG configuration", icon=":material/library_books:"):
+    with st.expander(label="RAG configuration", icon=":material/library_books:", expanded=not st.session_state.crawler__enabled):
         
         options_map = {
             "mmr": "MMR",
@@ -496,14 +528,63 @@ def rag_settings() -> None:
                 """
         )
 
-        st.selectbox(
-            label="Collection to preserve",
-            options=sorted(st.session_state.collections),
-            key="rag__collection_name",
-            index=0,
-            on_change=settings_change_callback,
-            disabled=len(st.session_state.collections) == 1 or not ui_elements_enabled()
-        )
+        col1, col2 = st.columns([0.85, 0.15], vertical_alignment="bottom")
+        
+        with col1:
+            st.selectbox(
+                label="Collection to persist",
+                placeholder="Select or create new...",
+                options=st.session_state.collections.keys(),
+                key="rag__collection_name",
+                index=None,
+                on_change=settings_change_callback,
+                disabled=not ui_elements_enabled()
+            )
+        
+        with col2:
+            st.button(
+                label="",
+                icon=":material/delete:",
+                help="Delete collection",
+                use_container_width=True,
+                disabled=not (st.session_state.rag__collection_name and ui_elements_enabled()),
+                on_click=delete_collection_callback
+            )
+
+        if not st.session_state.rag__collection_name:
+            
+            col1, col2 = st.columns([0.85, 0.15], vertical_alignment="bottom")
+            
+            with col1:
+                st.text_input(
+                    label="Name for new collection",
+                    placeholder="my_collection",
+                    help="""
+                        Chroma uses collection names in the url, so there are a few restrictions on naming them:
+                        - The length of the name must be between 3 and 63 characters.
+                        - The name must start and end with a lowercase letter or a digit, and it can contain dots, dashes, and underscores in between.
+                        - The name must not contain two consecutive dots.
+                        - The name must not be a valid IP address.                
+                    """,
+                    key="new_collection",
+                    max_chars=63
+                )
+
+            with col2:
+                st.button(
+                    label="",
+                    icon=":material/add:",
+                    help="Add new collection",
+                    use_container_width=True,
+                    disabled=collection_already_exists() or not is_valid_collection_name(st.session_state.new_collection),
+                    on_click=add_collection_callback
+                )
+            
+            if st.session_state.new_collection and not is_valid_collection_name(st.session_state.new_collection):
+                st.error("Invalid collection name")
+            
+            elif collection_already_exists():
+                st.error("Collection already exists")
 
         st.selectbox(
             label="Embedding model to use",
@@ -713,17 +794,17 @@ def sidebar() -> None:
             elif st.session_state.settings_error_message:
                 st.error(st.session_state.settings_error_message)
 
-            else:
+            elif st.session_state.initial_settings_submitted:
                 st.success("Settings configured successfully")
 
             # Render basic settings
             basic_settings()
 
-            # Render crawler settings
-            crawler_settings()
-
             # Render RAG settings
             rag_settings()
+
+            # Render crawler settings
+            crawler_settings()
 
             # Render LLM settings
             llm_settings()
@@ -948,6 +1029,18 @@ def rag_settings_submitted() -> bool:
         bool
             Indicates whether any modified settings are submitted.
     """
+    # Website URL must not be empty
+    if not st.session_state.rag__collection_name:
+
+        # Update error message
+        st.session_state.settings_error_message = "Please configure collection"
+
+        # Flag ongoing rerun to skip settings validation and show error status
+        st.session_state.settings_rerun_in_progress = True
+
+        # Indicate error
+        return False
+    
     # Get list of modified keys
     modified_keys = [key for key in modified_settings("rag")]
 
@@ -958,7 +1051,7 @@ def rag_settings_submitted() -> bool:
         st.session_state.settings_submit_required = True
 
         # Changes are not submitted (skip initial settings)
-        if st.session_state.initial_settings_submitted and not st.session_state.submit_settings_clicked:
+        if not st.session_state.submit_settings_clicked:
 
             # Update error message
             st.session_state.settings_error_message = "Please submit settings"
@@ -1031,7 +1124,6 @@ def crawler_settings_submitted() -> bool:
             
             # Perform comprehensive crawl as long as any associated settings changed
             if any(key in modified_keys for key in {"url", "max_depth", "max_pages", "min_score"}):
-
                 # Indicate that comprehensive crawl can be executed
                 st.session_state.bfs_pending = True
             
@@ -1088,12 +1180,12 @@ def settings_configured() -> bool:
     st.session_state.settings_error_message = ""
     st.session_state.settings_submit_required = False
 
-    if not llm_settings_submitted():
-        # Some modified LLM's settigns were not submitted
-        return False
-
     if not rag_settings_submitted():
         # Some modified RAG's settigns were not submitted
+        return False
+    
+    if not llm_settings_submitted():
+        # Some modified LLM's settigns were not submitted
         return False
 
     if not crawler_settings_submitted():
@@ -1131,9 +1223,8 @@ async def retrieve_knowledgebase(keywords: list[str] = []) -> None:
         keywords : list[str]
             List of keywords to prioritize the most relevant pages.
     """
-    # Populate collection with vectors
+    # Streaming mode is recommended for real-time applications
     async for document in st.session_state.crawler.crawl(
-        # Streaming mode is recommended for real-time applications
         start_url=st.session_state.settings["crawler"]["url"],
         max_depth=st.session_state.settings["crawler"]["max_depth"],
         max_pages=st.session_state.settings["crawler"]["max_pages"],
@@ -1143,6 +1234,7 @@ async def retrieve_knowledgebase(keywords: list[str] = []) -> None:
         stream_mode=True
     ):
         if document.page_content:
+            # Populate collection with vectors
             await st.session_state.rag.add_to_collection(
                 document,
                 collection_name=st.session_state.settings["rag"]["collection_name"],
@@ -1150,6 +1242,11 @@ async def retrieve_knowledgebase(keywords: list[str] = []) -> None:
                 window_size=st.session_state.settings["rag"]["window_size"],
                 window_overlap=st.session_state.settings["rag"]["window_overlap"]
             )
+    
+    # Mark collection as existing after population
+    st.session_state.collections[
+        st.session_state.settings["rag"]["collection_name"]
+    ] = True
 
 
 async def chat_response(user_prompt: str) -> None:
@@ -1201,6 +1298,11 @@ async def chat_response(user_prompt: str) -> None:
         min_diversity=st.session_state.settings["rag"]["min_diversity"],
         min_similarity=st.session_state.settings["rag"]["min_similarity"]
     )
+
+    # Mark collection as existing after retrieving context
+    st.session_state.collections[
+        st.session_state.settings["rag"]["collection_name"]
+    ] = True
 
     with st.spinner("Generating response"):
         # Invoke LLM to stream response
@@ -1270,6 +1372,8 @@ async def chat_widget() -> None:
         # Force rerun to refresh messages (prevent stale message state for the download option)
         st.rerun()
 
+    debug_settings("crawler")
+    
     # Perform comprehesive crawl (BFS) after submitting modified settings
     if st.session_state.bfs_in_progress:
         with st.spinner("Populating collection"):
@@ -1277,6 +1381,7 @@ async def chat_widget() -> None:
             await retrieve_knowledgebase([])
 
         # Update flags as soon as comprehensive crawl finishes
+        st.session_state.bfs_pending = False
         st.session_state.bfs_in_progress = False
         st.session_state.last_crawl_completed = True
         st.session_state.bfs_with_qds_settings = False

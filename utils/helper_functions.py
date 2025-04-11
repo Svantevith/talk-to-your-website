@@ -1,9 +1,7 @@
-import os
+import re
 import httpx
 import socket
 import requests
-import shutil
-import sqlite3
 from datetime import datetime
 from yake import KeywordExtractor
 
@@ -38,92 +36,32 @@ def list_ollama_models(families: set[str] = {}) -> list[str]:
         return []
 
 
-def delete_collection_directories(persist_directory: str) -> None:
+def is_valid_collection_name(name: str) -> bool:
     """
-    Remove remaining directories after a collection was deleted, but some artifacts still exist in the database.
+    Validates if the given name is a proper ChromaDB collection name.
+
+    Rules:
+    - Only lowercase letters, numbers, and underscores
+    - Must start and end with alphanumeric character
+    - Length between 1 and 63 characters
+    - No consecutive underscores
 
     Parameters
     ----------
-        persist_directory : str
-            Path to the persist directory.
-    """
-    # Browse persist directory
-    chroma_collections = os.listdir(persist_directory)
-
-    # Check if persist directory has a running Chroma DB instance
-    if "chroma.sqlite3" not in chroma_collections:
-        print(
-            f"=== No Chroma database running in {persist_directory} ==="
-        )
-        return
-
-    # Remove database instance from paths
-    chroma_collections.remove("chroma.sqlite3")
-
-    # Check if there are any artifacts in the persist directory
-    if not chroma_collections:
-        # Debugging
-        print(
-            f"=== No Chroma artifacts in {persist_directory} to remove ==="
-        )
-        return
-
-    # Retrieve vector store ids used by Chroma DB to identify a collection
-    vector_store_ids = get_vector_store_ids(persist_directory)
-
-    # Iterate over collection directories
-    for collection in chroma_collections:
-
-        # Collection was not deleted and is still in the vector scope
-        if collection in vector_store_ids:
-            # Debugging
-            print(
-                f"=== Collection {collection} was not deleted by the client and is still in the vector scope ==="
-            )
-            continue
-
-        try:
-            # Remove directory associated with an unused collection
-            collection_path = os.path.join(persist_directory, collection)
-            shutil.rmtree(collection_path)
-
-            # Debugging
-            print(
-                f"=== Remaining directory {collection_path} was removed ==="
-            )
-
-        except PermissionError:
-            # Debugging
-            print(
-                f"=== Chroma DB hasn't released the {collection} collection yet ==="
-            )
-
-
-def get_vector_store_ids(persist_directory: str) -> set[str]:
-    """
-    Retrieve vector store IDs in the specified persist directory.
-
-    Parameters
-    ----------
-        persist_directory : str
-            Path to the persistent directory.
+    name : str
+        The collection name to validate.
 
     Returns
     -------
-        set[str]
-            Set of vector store IDs.
+    bool
+        True if valid, False otherwise.
     """
-    # Connect to the database
-    db = sqlite3.connect(os.path.join(persist_directory, "chroma.sqlite3"))
+    if not (1 <= len(name) <= 63):
+        return False
 
-    # Get locations where Chroma stores specific collections
-    cursor = db.cursor()
-    cursor.execute("SELECT id FROM segments WHERE scope = 'VECTOR'")
-
-    # Return retrieved locations
-    return {
-        id[0] for id in cursor.fetchall()
-    }
+    # Must match pattern: starts/ends with alphanumeric, only _ allowed in between
+    pattern = r'^[a-z0-9](?!.*__)[a-z0-9_]*[a-z0-9]$'
+    return re.match(pattern, name) is not None
 
 
 def connected_to_internet(host: str = "8.8.8.8", port: int = 443, timeout: float = 1.0) -> bool:
