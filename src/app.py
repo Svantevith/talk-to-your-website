@@ -1347,8 +1347,6 @@ async def chat_widget() -> None:
 
         # Force rerun to refresh messages (prevent stale message state for the download option)
         st.rerun()
-
-    debug_settings("crawler")
     
     # Perform comprehesive crawl (BFS) after submitting modified settings
     if st.session_state.bfs_in_progress:
