@@ -21,6 +21,15 @@ def persist_state() -> None:
     """
     Keep session state consistent between reruns.
     """
+    if "display_modal" not in st.session_state:
+        st.session_state.display_modal = False
+
+    if "entered_modal" not in st.session_state:
+        st.session_state.entered_modal = 0
+
+    if "collection_to_delete" not in st.session_state:
+        st.session_state.collection_to_delete = ""
+
     # Indicates whether app has fully loaded
     if "chat_loaded" not in st.session_state:
         st.session_state.chat_loaded = False
@@ -36,11 +45,11 @@ def persist_state() -> None:
                 "max_depth": 0,
                 "max_pages": 1,
                 "min_score": max(
-                    0.0, 
+                    0.0,
                     min(0.8, round(CrawlerConfig.MIN_SCORE, 1))
                 ),
                 "kw_weight": max(
-                    0.0, 
+                    0.0,
                     min(1.0, round(CrawlerConfig.KW_WEIGHT, 1))
                 )
             },
@@ -60,7 +69,7 @@ def persist_state() -> None:
                 # List all possible keys
                 "generative_model": "",
                 "temperature": max(
-                    0.0, 
+                    0.0,
                     min(1.0, round(LLMConfig.TEMPERATURE, 1))
                 ),
                 "max_tokens": -2
@@ -69,20 +78,23 @@ def persist_state() -> None:
 
     # Initialize RAG
     if "rag" not in st.session_state:
-        st.session_state.rag = RAG(persist_directory=RAGConfig.PERSIST_DIRECTORY)
-    
+        st.session_state.rag = RAG(
+            persist_directory=RAGConfig.PERSIST_DIRECTORY)
+
     # Initialize crawler
     if "crawler" not in st.session_state:
-        st.session_state.crawler = DeepCrawler(user_data_dir=CrawlerConfig.USER_DATA_DIR)
-    
+        st.session_state.crawler = DeepCrawler(
+            user_data_dir=CrawlerConfig.USER_DATA_DIR)
+
     # Retrieve available LLM model names
     if "llm_models" not in st.session_state:
         st.session_state.llm_models = list_ollama_models(families={"llama"})
-    
+
     # Retrieve available embedding model names
     if "bert_models" not in st.session_state:
-        st.session_state.bert_models = list_ollama_models(families={"bert", "nomic-bert"})
-    
+        st.session_state.bert_models = list_ollama_models(
+            families={"bert", "nomic-bert"})
+
     # Retrieve list of available collections (automatically loaded when using persistent client)
     if "collections" not in st.session_state:
         # Store key-value pairs where name of the collection is the key, and value indicates whether it exists or not
@@ -214,7 +226,6 @@ def submit_settings_callback() -> None:
         st.session_state.bfs_pending = True
 
     # Rerun before BFS
-    print(st.session_state.bfs_pending)
     if connected_to_internet() and st.session_state.crawler__enabled and st.session_state.bfs_pending:
         # Indicate that crawl hasn't finished yet
         st.session_state.bfs_in_progress = True
@@ -234,22 +245,51 @@ def add_collection_callback() -> None:
     """
     # Indicate that new collection does not yet exist
     st.session_state.collections[st.session_state.new_collection] = False
-    
+
     # Update selection on the dropdown
     st.session_state.rag__collection_name = st.session_state.new_collection
+
+
+@st.dialog("Deleting non-empty collection")
+def confirm_collection_deletion() -> None:
+    """
+    Dialog to confirm deletion of the collection.
+    """
+    # Display information to the user
+    st.write(
+        f"{st.session_state.rag__collection_name} might contain documents, are you sure you want to delete it?")
+    st.warning("This action is irreversible unless files are recovered")
+
+    # Confirm button
+    if st.button("Confirm"):
+
+        # Delete collection and associated artifacts
+        st.session_state.rag.delete_collection_artifacts(
+            st.session_state.rag__collection_name)
+
+        # Remove collection name from the dictionary
+        st.session_state.collections.pop(st.session_state.rag__collection_name)
+
+        # Close the modal and refresh the sidebar
+        st.rerun()
 
 
 def delete_collection_callback() -> None:
     """
     Callback invoked when delete collection button is clicked.
     """
-    if st.session_state.collections[st.session_state.rag__collection_name]:
-        # Remove collection and associated artifacts from Chroma database 
-        st.session_state.rag.delete_collection_artifacts(st.session_state.rag__collection_name)
+    # Confirm deletion on a modal
+    st.session_state.display_modal = True
 
-    # Collection no loger exists
-    st.session_state.collections.pop(st.session_state.rag__collection_name)
-         
+    # Deleting of an actual collection is not needed because it does not exist in Chroma database
+    if not st.session_state.collections[st.session_state.rag__collection_name]:
+
+        # Modal will not be displayed
+        st.session_state.display_modal = False
+
+        # Make collection unavailable for selection
+        st.session_state.collections.pop(st.session_state.rag__collection_name)
+
 
 def basic_settings() -> None:
     """
@@ -272,7 +312,7 @@ def basic_settings() -> None:
                 default=False,
                 on_change=settings_change_callback
             )
-        
+
             if st.session_state.crawler__enabled:
                 st.caption(
                     "Crawl websites to make the answers **more contextual**"
@@ -282,13 +322,13 @@ def basic_settings() -> None:
                 st.caption(
                     "Answer general questions with **existing knowledge**"
                 )
-        
+
         else:
             # This section can be displayed AFTER crawler's settings are validated and submitted
             # Explicitly disable crawler to prevent its functionality without internet connection
             st.session_state.crawler__enabled = False
             st.session_state.settings["crawler"]["enabled"] = False
-            
+
             st.pills(
                 label="Retrieval mode",
                 options=options_map.keys(),
@@ -317,7 +357,8 @@ def basic_settings() -> None:
                 # Imitate progress of the execution
                 for percent_complete in range(100):
                     time.sleep(0.002)
-                    connection_bar.progress(percent_complete + 1, text=connection_text)
+                    connection_bar.progress(
+                        percent_complete + 1, text=connection_text)
 
                 # Remove progress bar after completion of the loop
                 time.sleep(1)
@@ -329,7 +370,7 @@ def rag_settings() -> None:
     RAG settings widget.
     """
     with st.expander(label="RAG configuration", icon=":material/library_books:", expanded=not st.session_state.crawler__enabled):
-        
+
         options_map = {
             "mmr": "MMR",
             "similarity_score_threshold": "Similarity"
@@ -353,7 +394,7 @@ def rag_settings() -> None:
         )
 
         col1, col2 = st.columns([0.85, 0.15], vertical_alignment="bottom")
-        
+
         with col1:
             st.selectbox(
                 label="Collection to persist",
@@ -364,21 +405,23 @@ def rag_settings() -> None:
                 on_change=settings_change_callback,
                 disabled=not ui_elements_enabled()
             )
-        
+
         with col2:
             st.button(
                 label="",
                 icon=":material/delete:",
                 help="Delete collection",
+                key="delete_collection",
                 use_container_width=True,
-                disabled=not (st.session_state.rag__collection_name and ui_elements_enabled()),
+                disabled=not (
+                    st.session_state.rag__collection_name and ui_elements_enabled()),
                 on_click=delete_collection_callback
             )
 
         if not st.session_state.rag__collection_name:
-            
+
             col1, col2 = st.columns([0.85, 0.15], vertical_alignment="bottom")
-            
+
             with col1:
                 st.text_input(
                     label="Name for new collection",
@@ -400,13 +443,14 @@ def rag_settings() -> None:
                     icon=":material/add:",
                     help="Add new collection",
                     use_container_width=True,
-                    disabled=collection_already_exists() or not is_valid_collection_name(st.session_state.new_collection),
+                    disabled=collection_already_exists() or not is_valid_collection_name(
+                        st.session_state.new_collection),
                     on_click=add_collection_callback
                 )
-            
+
             if st.session_state.new_collection and not is_valid_collection_name(st.session_state.new_collection):
                 st.error("Invalid collection name")
-            
+
             elif collection_already_exists():
                 st.error("Collection already exists")
 
@@ -416,7 +460,8 @@ def rag_settings() -> None:
             key="rag__embedding_model",
             index=0,
             on_change=settings_change_callback,
-            disabled=len(st.session_state.bert_models) == 1 or not ui_elements_enabled()
+            disabled=len(
+                st.session_state.bert_models) == 1 or not ui_elements_enabled()
         )
 
         st.select_slider(
@@ -450,8 +495,9 @@ def rag_settings() -> None:
 
         st.select_slider(
             label="Overlap between chunks",
-            options=[i/100 for i in range(10, 31, 5)],
-            format_func=lambda x: f"{options_map[x]} continuity" if options_map.get(x, None) else f"{x * 100}%",
+            options=[i / 100 for i in range(10, 31, 5)],
+            format_func=lambda x: f"{options_map[x]} continuity" if options_map.get(
+                x, None) else f"{x * 100}%",
             key="rag__window_overlap",
             disabled=not ui_elements_enabled(),
             value=st.session_state.settings["rag"]["window_overlap"],
@@ -707,16 +753,17 @@ def llm_settings() -> None:
     LLM settings widget.
     """
     with st.expander(label="LLM configuration", icon=":material/network_intelligence:"):
-        
+
         st.selectbox(
             label="Ollama model to use",
             options=sorted(st.session_state.llm_models),
             key="llm__generative_model",
             index=0,
             on_change=settings_change_callback,
-            disabled=len(st.session_state.llm_models) == 1 or not ui_elements_enabled()
+            disabled=len(
+                st.session_state.llm_models) == 1 or not ui_elements_enabled()
         )
-        
+
         options_map = {
             0.0: "Deterministic",
             1.0: "Creative"
@@ -784,7 +831,7 @@ def sidebar() -> None:
                 st.error(
                     "No [generative models](%s) available" %
                     "https://ollama.com/search"
-            )
+                )
             elif not st.session_state.chat_loaded:
                 st.warning("Please wait until chat widget is fully loaded")
 
@@ -1016,7 +1063,7 @@ def rag_settings_submitted() -> bool:
 
         # Indicate error
         return False
-    
+
     # Get list of modified keys
     modified_keys = [key for key in modified_settings("rag")]
 
@@ -1082,7 +1129,7 @@ def crawler_settings_submitted() -> bool:
 
         # Connection was never established
         if http_code == -1:
-            
+
             # Update error message
             st.session_state.settings_error_message = http_message
 
@@ -1097,18 +1144,18 @@ def crawler_settings_submitted() -> bool:
 
         # Query-driven crawl runs for each prompt, but comprehensive crawl runs conditionally
         if not st.session_state.crawler__relevant_search:
-            
+
             # Perform comprehensive crawl as long as any associated settings changed
             if any(key in modified_keys for key in {"url", "max_depth", "max_pages", "min_score"}):
                 # Indicate that comprehensive crawl can be executed
                 st.session_state.bfs_pending = True
-            
+
             # Parameters are the same as in the previous query-driven search
             elif st.session_state.settings["crawler"]["relevant_search"]:
-                
+
                 # User confirms whether to repeat comprehensive crawl with the same settings
                 st.session_state.bfs_with_qds_settings = True
-        
+
         # Crawler's settings were modified
         if modified_keys:
 
@@ -1131,7 +1178,8 @@ def crawler_settings_submitted() -> bool:
             for key in modified_keys:
 
                 # Assign most recent value from the control
-                st.session_state.settings["crawler"][key] = st.session_state[f"crawler__{key}"]
+                st.session_state.settings["crawler"][
+                    key] = st.session_state[f"crawler__{key}"]
 
         # Indicate success
         return True
@@ -1159,7 +1207,7 @@ def settings_configured() -> bool:
     if not rag_settings_submitted():
         # Some modified RAG's settigns were not submitted
         return False
-    
+
     if not llm_settings_submitted():
         # Some modified LLM's settigns were not submitted
         return False
@@ -1218,7 +1266,7 @@ async def retrieve_knowledgebase(keywords: list[str] = []) -> None:
                 window_size=st.session_state.settings["rag"]["window_size"],
                 window_overlap=st.session_state.settings["rag"]["window_overlap"]
             )
-    
+
     # Mark collection as existing after population
     st.session_state.collections[
         st.session_state.settings["rag"]["collection_name"]
@@ -1283,7 +1331,7 @@ async def chat_response(user_prompt: str) -> None:
     with st.spinner("Generating response"):
         # Invoke LLM to stream response
         response = st.session_state.llm.stream_response(user_prompt, context)
-        
+
         # Wait for request fulfillment and get the first token
         # Otherwise spinner is not visible, because first item from the generator is referenced when writing stream begins
         first_token = next(response)
@@ -1311,8 +1359,13 @@ async def chat_widget() -> None:
     # Refrain from verifying settings' integrity before chat loading is complete
     if st.session_state.chat_loaded:
 
+        # Prevent reload if modal is displayed
+        if st.session_state.delete_collection and st.session_state.display_modal:
+            # Deleting existing collection requires confirmation on a modal
+            confirm_collection_deletion()
+
         # Skip settings validation after rerun to avoid numerous screen renders
-        if st.session_state.rerun_on_settings_change and not st.session_state.settings_rerun_in_progress:
+        elif st.session_state.rerun_on_settings_change and not st.session_state.settings_rerun_in_progress:
 
             # Chat is not yet configured
             if not settings_configured():
@@ -1330,7 +1383,7 @@ async def chat_widget() -> None:
 
         # Indicate that rerun has completed
         st.session_state.settings_rerun_in_progress = False
-    
+
     # Load message history
     message_history()
 
@@ -1347,7 +1400,7 @@ async def chat_widget() -> None:
 
         # Force rerun to refresh messages (prevent stale message state for the download option)
         st.rerun()
-    
+
     # Perform comprehesive crawl (BFS) after submitting modified settings
     if st.session_state.bfs_in_progress:
         with st.spinner("Populating collection"):
