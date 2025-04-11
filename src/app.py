@@ -21,15 +21,6 @@ def persist_state() -> None:
     """
     Keep session state consistent between reruns.
     """
-    if "display_modal" not in st.session_state:
-        st.session_state.display_modal = False
-
-    if "entered_modal" not in st.session_state:
-        st.session_state.entered_modal = 0
-
-    if "collection_to_delete" not in st.session_state:
-        st.session_state.collection_to_delete = ""
-
     # Indicates whether app has fully loaded
     if "chat_loaded" not in st.session_state:
         st.session_state.chat_loaded = False
@@ -101,6 +92,10 @@ def persist_state() -> None:
         st.session_state.collections = {
             k: True for k in st.session_state.rag.list_collections()
         }
+    
+    # Indicates whether confirmation for collection deletion is displayed on a modal
+    if "collection_deletion_modal" not in st.session_state:
+        st.session_state.collection_deletion_modal = False
 
     # Store error from settings validation
     if "settings_error_message" not in st.session_state:
@@ -255,9 +250,13 @@ def confirm_collection_deletion() -> None:
     """
     Dialog to confirm deletion of the collection.
     """
+    # Revert flag
+    st.session_state.collection_deletion_modal = False
+
     # Display information to the user
     st.write(
-        f"{st.session_state.rag__collection_name} might contain documents, are you sure you want to delete it?")
+        f"{st.session_state.rag__collection_name} might contain documents, are you sure you want to delete it?"
+    )
     st.warning("This action is irreversible unless files are recovered")
 
     # Confirm button
@@ -279,13 +278,13 @@ def delete_collection_callback() -> None:
     Callback invoked when delete collection button is clicked.
     """
     # Confirm deletion on a modal
-    st.session_state.display_modal = True
+    st.session_state.collection_deletion_modal = True
 
     # Deleting of an actual collection is not needed because it does not exist in Chroma database
     if not st.session_state.collections[st.session_state.rag__collection_name]:
 
         # Modal will not be displayed
-        st.session_state.display_modal = False
+        st.session_state.collection_deletion_modal = False
 
         # Make collection unavailable for selection
         st.session_state.collections.pop(st.session_state.rag__collection_name)
@@ -399,6 +398,7 @@ def rag_settings() -> None:
             st.selectbox(
                 label="Collection to persist",
                 placeholder="Select or create new...",
+                help="Leave empty to create new collection",
                 options=st.session_state.collections.keys(),
                 key="rag__collection_name",
                 index=None,
@@ -806,6 +806,25 @@ def llm_settings() -> None:
         )
 
 
+@st.dialog("Deleting message history")
+def confirm_message_cleanup() -> None:
+    """
+    Dialog to confirm cleanup of chat messages.
+    """
+    # Display information to the user
+    st.write("Chat window and all the previous messages will be wiped out")
+    st.warning("This action is irreversible, consider downloading chat history")
+
+    # Confirm button
+    if st.button("Confirm"):
+
+        # Remove messages
+        del st.session_state["messages"]
+
+        # Close the modal and refresh messages
+        st.rerun()
+
+
 def sidebar() -> None:
     """
     Render sidebar widget. 
@@ -884,7 +903,7 @@ def sidebar() -> None:
                     st.session_state["messages"]
                 )
 
-                # Download chat transcript
+                # Download button
                 st.download_button(
                     label="Download transcript",
                     icon=":material/download:",
@@ -903,9 +922,10 @@ def sidebar() -> None:
 
             with col2:
                 # Remove message history
-                if st.button(
+                st.button(
                     label="Clear messages",
                     icon=":material/delete:",
+                    key="cleanup_messages_modal",
                     use_container_width=True,
                     disabled=(
                         len(st.session_state.messages) <= 1 or not (
@@ -913,12 +933,12 @@ def sidebar() -> None:
                             st.session_state.response_written
                         )
                     )
-                ):
-                    # Remove messages
-                    del st.session_state["messages"]
+                )
+                    # # Remove messages
+                    # del st.session_state["messages"]
 
-                    # Force rerun to refresh messages
-                    st.rerun()
+                    # # Force rerun to refresh messages
+                    # st.rerun()
 
 
 def debug_settings(primary_key: Literal["crawler", "rag", "llm"]) -> None:
@@ -1360,7 +1380,12 @@ async def chat_widget() -> None:
     if st.session_state.chat_loaded:
 
         # Prevent reload if modal is displayed
-        if st.session_state.delete_collection and st.session_state.display_modal:
+        if st.session_state.cleanup_messages_modal:
+            # Deleting messages requires confirmation on a modal
+            confirm_message_cleanup()
+
+        # Prevent reload if modal is displayed
+        elif st.session_state.delete_collection and st.session_state.collection_deletion_modal:
             # Deleting existing collection requires confirmation on a modal
             confirm_collection_deletion()
 
