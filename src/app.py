@@ -221,6 +221,36 @@ def submit_settings_callback() -> None:
         st.session_state.last_crawl_completed = False
 
 
+def collection_already_exists() -> bool:
+    """
+    Indicate whether new collection already exists.
+    """
+    return st.session_state.new_collection in st.session_state.collections
+
+
+def add_collection_callback() -> None:
+    """
+    Callback invoked when add collection button is clicked.
+    """
+    # Indicate that new collection does not yet exist
+    st.session_state.collections[st.session_state.new_collection] = False
+    
+    # Update selection on the dropdown
+    st.session_state.rag__collection_name = st.session_state.new_collection
+
+
+def delete_collection_callback() -> None:
+    """
+    Callback invoked when delete collection button is clicked.
+    """
+    if st.session_state.collections[st.session_state.rag__collection_name]:
+        # Remove collection and associated artifacts from Chroma database 
+        st.session_state.rag.delete_collection_artifacts(st.session_state.rag__collection_name)
+
+    # Collection no loger exists
+    st.session_state.collections.pop(st.session_state.rag__collection_name)
+         
+
 def basic_settings() -> None:
     """
     Basic settings widget.
@@ -274,15 +304,12 @@ def basic_settings() -> None:
 
             st.warning("No internet connection, search mode unavailable")
 
-            retry_connection = st.button(
+            if st.button(
                 label="Retry the connection",
                 type="tertiary",
                 icon=":material/refresh:",
                 disabled=not ui_elements_enabled(),
-            )
-
-            
-            if retry_connection:
+            ):
                 # Display progress bar
                 connection_text = "Checking internet connectivity"
                 connection_bar = st.progress(0, text=connection_text)
@@ -296,209 +323,6 @@ def basic_settings() -> None:
                 time.sleep(1)
                 connection_bar.empty()
 
-
-def crawler_settings() -> None:
-    """
-    Crawler settings widget.
-    """
-    with st.expander(label="Crawler configuration", icon=":material/footprint:", expanded=st.session_state.crawler__enabled):
-        st.text_input(
-            label="Website URL",
-            placeholder="https://YourWebsiteGoesHere.com",
-            key="crawler__url",
-            disabled=not (
-                st.session_state.crawler__enabled and ui_elements_enabled()
-            ),
-            on_change=settings_change_callback
-        )
-
-        options_map = {
-            False: "Comprehensive",
-            True: "Query-driven"
-        }
-
-        st.segmented_control(
-            label="Crawl strategy",
-            options=options_map.keys(),
-            format_func=lambda k: options_map[k],
-            selection_mode="single",
-            key="crawler__relevant_search",
-            default=False,
-            disabled=not (
-                st.session_state.crawler__enabled and ui_elements_enabled()
-            ),
-            on_change=settings_change_callback
-        )
-
-        if st.session_state.crawler__relevant_search:
-            st.caption(
-                body="""
-                            Vector store is populated for each prompt to **prioritize the most relevant pages**
-                            - **Slower execution** as website is crawled for **each prompt**
-                            - Smaller, query-oriented knowledgebase is **more resource efficient**
-                        """
-            )
-
-        else:
-            st.caption(
-                body="""
-                            Vector store is populated initially **without prioritizing pages**
-                            - **Faster execution** as website is crawled **only once**
-                            - Comprehensive knowledgebase is **more suitable for general FAQs**
-                        """
-            )
-
-        st.select_slider(
-            label="Levels to crawl deeper",
-            options=[i for i in range(0, max(1, CrawlerConfig.MAX_DEPTH) + 1)],
-            format_func=lambda x:
-                "Starting page only"
-                if not x else int(x),
-            key="crawler__max_depth",
-            value=st.session_state.settings["crawler"]["max_depth"],
-            disabled=not (
-                st.session_state.crawler__enabled and ui_elements_enabled()
-            ),
-            on_change=settings_change_callback
-        )
-
-        if st.session_state.crawler__enabled:
-            st.warning(
-                "Beware of values greater than 3, which can exponentially increase crawl size"
-            )
-
-        options = [
-            i for i in range(1, max(1, CrawlerConfig.MAX_PAGES) + 1)
-        ] + [None,]
-
-        options_map = {
-            1: "Starting page only"
-        }
-
-        st.select_slider(
-            label="Total number of pages to crawl",
-            options=options,
-            format_func=lambda x: "All" if not x else options_map.get(x, x),
-            value=st.session_state.settings["crawler"]["max_pages"],
-            key="crawler__max_pages",
-            disabled=not (
-                st.session_state.crawler__enabled and ui_elements_enabled()
-            ),
-            on_change=settings_change_callback
-        )
-
-        if st.session_state.crawler__enabled:
-            if st.session_state.crawler__relevant_search:
-                st.info(
-                    body="Keep maximum number of pages **low**"
-                )
-
-            else:
-                st.info(
-                    body="Keep maximum number of pages **high** or use **all**"
-                )
-
-        if st.session_state.crawler__relevant_search:
-            # Pop conditional control values that are not used
-            st.session_state.pop("crawler__min_score", None)
-            st.session_state.pop("crawler__repeat_bfs", None)
-
-            options = [i / 10 for i in range(11)]
-            options_map = {
-                0.0: "No prioritization",
-                1.0: "Only pages matching query"
-            }
-
-            st.select_slider(
-                label="Prioritize keywords in overall scores",
-                options=options,
-                format_func=lambda x: options_map.get(x, x),
-                key="crawler__kw_weight",
-                value=st.session_state.settings["crawler"]["kw_weight"],
-                disabled=not (
-                    st.session_state.crawler__enabled and ui_elements_enabled()
-                ),
-                on_change=settings_change_callback
-            )
-
-        else:
-            # Pop conditional control values that are not used
-            st.session_state.pop("crawler__kw_weight", None)
-
-            options = [i / 10 for i in range(9)]
-            options_map = {
-                0.0: "Any page",
-                0.8: "High-score pages only"
-            }
-
-            st.select_slider(
-                label="Minimum score for pages to be crawled",
-                options=options,
-                format_func=lambda x: options_map.get(x, x),
-                key="crawler__min_score",
-                value=st.session_state.settings["crawler"]["min_score"],
-                disabled=not (
-                    st.session_state.crawler__enabled and ui_elements_enabled()
-                ),
-                on_change=settings_change_callback
-            )
-
-            if st.session_state.crawler__enabled:
-                st.info(
-                    "Reduce this value to **prevent shallow exploration**"
-                )
-
-            if st.session_state.bfs_with_qds_settings:
-
-                st.checkbox(
-                    label="Confirm subsequent iteration",
-                    value=False,
-                    key="crawler__repeat_bfs",
-                    disabled=not (
-                        st.session_state.crawler__enabled and ui_elements_enabled()
-                    ),
-                    on_change=settings_change_callback
-                )
-
-                st.caption(
-                    "Would you like to run comprehensive search **without adjustments**?"
-                )
-
-                if st.session_state.crawler__enabled:
-                    st.warning(
-                        "Settings are identical to the previous query-driven search"
-                    )
-
-
-def collection_already_exists() -> bool:
-    """
-    Indicate whether new collection already exists.
-    """
-    return st.session_state.new_collection in st.session_state.collections
-
-
-def add_collection_callback() -> None:
-    """
-    Callback invoked when add collection button is clicked.
-    """
-    # Indicate that new collection does not yet exist
-    st.session_state.collections[st.session_state.new_collection] = False
-    
-    # Update selection on the dropdown
-    st.session_state.rag__collection_name = st.session_state.new_collection
-
-
-def delete_collection_callback() -> None:
-    """
-    Callback invoked when delete collection button is clicked.
-    """
-    if st.session_state.collections[st.session_state.rag__collection_name]:
-        # Remove collection and associated artifacts from Chroma database 
-        st.session_state.rag.delete_collection_artifacts(st.session_state.rag__collection_name)
-
-    # Collection no loger exists
-    st.session_state.collections.pop(st.session_state.rag__collection_name)
-         
 
 def rag_settings() -> None:
     """
@@ -705,6 +529,179 @@ def rag_settings() -> None:
             )
 
 
+def crawler_settings() -> None:
+    """
+    Crawler settings widget.
+    """
+    with st.expander(label="Crawler configuration", icon=":material/footprint:", expanded=st.session_state.crawler__enabled):
+        st.text_input(
+            label="Website URL",
+            placeholder="https://YourWebsiteGoesHere.com",
+            key="crawler__url",
+            disabled=not (
+                st.session_state.crawler__enabled and ui_elements_enabled()
+            ),
+            on_change=settings_change_callback
+        )
+
+        options_map = {
+            False: "Comprehensive",
+            True: "Query-driven"
+        }
+
+        st.segmented_control(
+            label="Crawl strategy",
+            options=options_map.keys(),
+            format_func=lambda k: options_map[k],
+            selection_mode="single",
+            key="crawler__relevant_search",
+            default=False,
+            disabled=not (
+                st.session_state.crawler__enabled and ui_elements_enabled()
+            ),
+            on_change=settings_change_callback
+        )
+
+        if st.session_state.crawler__relevant_search:
+            st.caption(
+                body="""
+                            Vector store is populated for each prompt to **prioritize the most relevant pages**
+                            - **Slower execution** as website is crawled for **each prompt**
+                            - Smaller, query-oriented knowledgebase is **more resource efficient**
+                        """
+            )
+
+        else:
+            st.caption(
+                body="""
+                            Vector store is populated initially **without prioritizing pages**
+                            - **Faster execution** as website is crawled **only once**
+                            - Comprehensive knowledgebase is **more suitable for general FAQs**
+                        """
+            )
+
+        st.select_slider(
+            label="Levels to crawl deeper",
+            options=[i for i in range(0, max(1, CrawlerConfig.MAX_DEPTH) + 1)],
+            format_func=lambda x:
+                "Starting page only"
+                if not x else int(x),
+            key="crawler__max_depth",
+            value=st.session_state.settings["crawler"]["max_depth"],
+            disabled=not (
+                st.session_state.crawler__enabled and ui_elements_enabled()
+            ),
+            on_change=settings_change_callback
+        )
+
+        if st.session_state.crawler__enabled:
+            st.warning(
+                "Beware of values greater than 3, which can exponentially increase crawl size"
+            )
+
+        options = [
+            i for i in range(1, max(1, CrawlerConfig.MAX_PAGES) + 1)
+        ] + [None,]
+
+        options_map = {
+            1: "Starting page only"
+        }
+
+        st.select_slider(
+            label="Total number of pages to crawl",
+            options=options,
+            format_func=lambda x: "All" if not x else options_map.get(x, x),
+            value=st.session_state.settings["crawler"]["max_pages"],
+            key="crawler__max_pages",
+            disabled=not (
+                st.session_state.crawler__enabled and ui_elements_enabled()
+            ),
+            on_change=settings_change_callback
+        )
+
+        if st.session_state.crawler__enabled:
+            if st.session_state.crawler__relevant_search:
+                st.info(
+                    body="Keep maximum number of pages **low**"
+                )
+
+            else:
+                st.info(
+                    body="Keep maximum number of pages **high** or use **all**"
+                )
+
+        if st.session_state.crawler__relevant_search:
+            # Pop conditional control values that are not used
+            st.session_state.pop("crawler__min_score", None)
+            st.session_state.pop("crawler__repeat_bfs", None)
+
+            options = [i / 10 for i in range(11)]
+            options_map = {
+                0.0: "No prioritization",
+                1.0: "Only pages matching query"
+            }
+
+            st.select_slider(
+                label="Prioritize keywords in overall scores",
+                options=options,
+                format_func=lambda x: options_map.get(x, x),
+                key="crawler__kw_weight",
+                value=st.session_state.settings["crawler"]["kw_weight"],
+                disabled=not (
+                    st.session_state.crawler__enabled and ui_elements_enabled()
+                ),
+                on_change=settings_change_callback
+            )
+
+        else:
+            # Pop conditional control values that are not used
+            st.session_state.pop("crawler__kw_weight", None)
+
+            options = [i / 10 for i in range(9)]
+            options_map = {
+                0.0: "Any page",
+                0.8: "High-score pages only"
+            }
+
+            st.select_slider(
+                label="Minimum score for pages to be crawled",
+                options=options,
+                format_func=lambda x: options_map.get(x, x),
+                key="crawler__min_score",
+                value=st.session_state.settings["crawler"]["min_score"],
+                disabled=not (
+                    st.session_state.crawler__enabled and ui_elements_enabled()
+                ),
+                on_change=settings_change_callback
+            )
+
+            if st.session_state.crawler__enabled:
+                st.info(
+                    "Reduce this value to **prevent shallow exploration**"
+                )
+
+            if st.session_state.bfs_with_qds_settings:
+
+                st.checkbox(
+                    label="Confirm subsequent iteration",
+                    value=False,
+                    key="crawler__repeat_bfs",
+                    disabled=not (
+                        st.session_state.crawler__enabled and ui_elements_enabled()
+                    ),
+                    on_change=settings_change_callback
+                )
+
+                st.caption(
+                    "Would you like to run comprehensive search **without adjustments**?"
+                )
+
+                if st.session_state.crawler__enabled:
+                    st.warning(
+                        "Settings are identical to the previous query-driven search"
+                    )
+
+
 def llm_settings() -> None:
     """
     LLM settings widget.
@@ -859,7 +856,7 @@ def sidebar() -> None:
 
             with col2:
                 # Remove message history
-                message_cleanup = st.button(
+                if st.button(
                     label="Clear messages",
                     icon=":material/delete:",
                     use_container_width=True,
@@ -869,33 +866,12 @@ def sidebar() -> None:
                             st.session_state.response_written
                         )
                     )
-                )
+                ):
+                    # Remove messages
+                    del st.session_state["messages"]
 
-            if message_cleanup:
-                # Display progress bar
-                cleanup_text = "Cleanup in progress. Please wait."
-                cleanup_bar = st.progress(
-                    value=0,
-                    text=cleanup_text
-                )
-
-                # Imitate progress of the execution
-                for percent_complete in range(100):
-                    time.sleep(0.01)
-                    cleanup_bar.progress(
-                        value=percent_complete + 1,
-                        text=cleanup_text
-                    )
-
-                # Remove progress bar after completion of the loop
-                time.sleep(1)
-                cleanup_bar.empty()
-
-                # Remove messages
-                del st.session_state["messages"]
-
-                # Force rerun to refresh messages
-                st.rerun()
+                    # Force rerun to refresh messages
+                    st.rerun()
 
 
 def debug_settings(primary_key: Literal["crawler", "rag", "llm"]) -> None:
