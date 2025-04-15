@@ -1,5 +1,4 @@
 import os
-from typing import Union
 from collections.abc import AsyncGenerator
 from langchain.docstore.document import Document
 from crawl4ai import AsyncWebCrawler, BFSDeepCrawlStrategy, BestFirstCrawlingStrategy, BrowserConfig, CacheMode, CrawlResult, CrawlerRunConfig, KeywordRelevanceScorer, LXMLWebScrapingStrategy
@@ -47,8 +46,8 @@ class DeepCrawler:
         start_url: str,
         stream_mode: bool = True,
         max_depth: int = 0,
-        max_pages: Union[None, int] = 1,
-        min_score: Union[None, float] = 0.2,
+        max_pages: int = 1,
+        min_score: float = 0.2,
         kw_weight: float = 0.7,
         kw_list: list[str] = []
     ) -> AsyncGenerator[Document]:
@@ -64,13 +63,13 @@ class DeepCrawler:
             max_depth : int
                 Number of pages to crawl beyond (be cautious with values > 3) the starting page.
             max_pages : int
-                Limit total number of pages crawled or use None to crawl all pages. 
+                Limit total number of pages crawled or use negative value to crawl all pages. 
             min_score : float
-                Skip pages with score below this value or use None to crawl any page.
+                Skip pages with score (between 0.0 and 1.0) below this value.
             kw_list : list[str]
                 List of keywords to use in relevance score calculation.
             kw_weight : float
-                Prioritize keywords in overall score.
+                Prioritize keywords (between 0.0 and 1.0) in overall score.
 
         Returns
         -------
@@ -89,7 +88,7 @@ class DeepCrawler:
             # Explore higher-scoring pages first
             crawl_strategy = BestFirstCrawlingStrategy(
                 max_depth=max_depth,
-                max_pages=max_pages,
+                max_pages=max_pages if max_pages > -1 else None,
                 include_external=False,
                 # Prioritize the most relevant pages
                 url_scorer=KeywordRelevanceScorer(
@@ -106,7 +105,7 @@ class DeepCrawler:
                 # Be cautious with values > 3, which can exponentially increase crawl size
                 max_depth=max_depth,
                 # Maximum number of pages to crawl
-                max_pages=max_pages,
+                max_pages=max_pages if max_pages > -1 else None,
                 # Stay within the same domain
                 include_external=False,
                 # Skip URLs with scores below this value

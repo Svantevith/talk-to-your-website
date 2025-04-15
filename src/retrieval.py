@@ -80,9 +80,9 @@ class RAG(Client):
             fetch_k : int
                 Number of documents filtered by the MMR.
             min_diversity : float
-                Minimum diversity of documents returned by the MMR.
+                Minimum diversity of documents (between 0.0 and 1.0) returned by the MMR.
             min_similarity : float
-                Minimum similarity to exclude unrelated documents. 
+                Minimum similarity (between 0.0 and 1.0) to exclude unrelated documents. 
 
         Returns
         -------
@@ -177,7 +177,7 @@ class RAG(Client):
             window_size : int
                 Window size for text segmentation.
             window_overlap : float
-                Proportion of the overlap to the window size.
+                Proportion (between 0.0 and 1.0) of the overlap to the window size.
         """
         # Debugging
         print(

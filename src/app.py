@@ -647,16 +647,17 @@ def crawler_settings() -> None:
 
         options = [
             i for i in range(1, max(1, CrawlerConfig.MAX_PAGES) + 1)
-        ] + [None,]
+        ] + [-1]
 
         options_map = {
+            -1: "All",
             1: "Starting page only"
         }
 
         st.select_slider(
             label="Total number of pages to crawl",
             options=options,
-            format_func=lambda x: "All" if not x else options_map.get(x, x),
+            format_func=lambda x: options_map.get(x, x),
             value=st.session_state.settings["crawler"]["max_pages"],
             key="crawler__max_pages",
             disabled=not (
@@ -1224,16 +1225,16 @@ def settings_configured() -> bool:
     st.session_state.settings_error_message = ""
     st.session_state.settings_submit_required = False
 
-    if not rag_settings_submitted():
-        # Some modified RAG's settigns were not submitted
-        return False
-
     if not llm_settings_submitted():
         # Some modified LLM's settigns were not submitted
         return False
 
     if not crawler_settings_submitted():
         # Some modified crawler's settigns were not submitted
+        return False
+    
+    if not rag_settings_submitted():
+        # Some modified RAG's settigns were not submitted
         return False
 
     # Revert flags as soon as settings are submitted
