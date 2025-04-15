@@ -32,7 +32,7 @@ def persist_state() -> None:
                 # List all possible keys and set default values
                 "enabled": False,
                 "url": "",
-                "relevant_search": False,
+                "relevant_search": True,
                 "max_depth": 0,
                 "max_pages": 1,
                 "min_score": max(
@@ -591,8 +591,8 @@ def crawler_settings() -> None:
         )
 
         options_map = {
-            False: "Comprehensive",
-            True: "Query-driven"
+            True: "Query-driven",
+            False: "Comprehensive"
         }
 
         st.segmented_control(
@@ -601,7 +601,7 @@ def crawler_settings() -> None:
             format_func=lambda k: options_map[k],
             selection_mode="single",
             key="crawler__relevant_search",
-            default=False,
+            default=st.session_state.settings["crawler"]["relevant_search"],
             disabled=not (
                 st.session_state.crawler__enabled and ui_elements_enabled()
             ),

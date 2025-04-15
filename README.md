@@ -2,15 +2,15 @@
 
 This project delivers Retrieval-Augmented Generation (RAG) agent enhanced with LLM-optimized website crawler built using Crawl4AI, Langchain, ChromaDB and Ollama. The agent can crawl websites, store extracted content in a local vector database, and provide context-aware answers to user queries by retrieving and analyzing the most relevant pieces of textual information.
 
-At its core lays a user-friendly, interactive chat interface built with Streamlit, ensuring a seamless and responsive user experience. The chat application allows users to configure behaviour of the assistant as needed to receive contextually coherent responses.
+At its core lays a user-friendly, interactive chat interface built with Streamlit, ensuring a seamless and responsive user experience. The chat application allows users to configure behaviour of the assistant as needed, including scraping strategy, vector store management and generative reasoning, to receive contextually coherent responses.
 
-By leveraging ChromaDB and Ollama on a local machine, this system offers several key advantages:
+By leveraging Playwright, ChromaDB and Ollama on a local machine, this system offers several key advantages:
 - Privacy & Security – No external API calls, ensuring data remains private.
 - Cost-Effective – No reliance on paid APIs or cloud subscriptions.
 - Offline Functionality – Works without an internet connection retrieving context from locally persisted collection.
 - Multilangage Support – Various models are trained on a broad collection of languages, however it must be taken into account that the leading language is English.
 
-This makes the application an excellent choice for research, knowledge management, and AI-powered text analysis without compromising control over your data. 
+This makes the application an excellent choice for research, knowledge management, and AI-powered text analysis without compromising control over your data.
 
 ## Features
 
