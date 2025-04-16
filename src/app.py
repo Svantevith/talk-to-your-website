@@ -66,6 +66,12 @@ def persist_state() -> None:
                 "max_tokens": -2
             }
         }
+    
+    # Track modified keys required to be submitted
+    if "modified_keys" not in st.session_state:
+        st.session_state.modified_keys = {
+            k: {} for k in st.session_state.settings
+        }
 
     # Initialize RAG
     if "rag" not in st.session_state:
@@ -92,30 +98,18 @@ def persist_state() -> None:
         st.session_state.collections = {
             k: True for k in st.session_state.rag.list_collections()
         }
-    
+
     # Indicates whether confirmation for collection deletion is displayed on a modal
     if "collection_deletion_modal" not in st.session_state:
         st.session_state.collection_deletion_modal = False
-
-    # Store error from settings validation
-    if "settings_error_message" not in st.session_state:
-        st.session_state.settings_error_message = ""
+    
+    # Store messages from settings validation
+    if "settings_messages" not in st.session_state:
+        st.session_state.settings_messages = []
 
     # Indicate whether settings submit is required
     if "settings_submit_required" not in st.session_state:
         st.session_state.settings_submit_required = False
-
-    # Indicate whether initial settings were submitted
-    if "initial_settings_submitted" not in st.session_state:
-        st.session_state.initial_settings_submitted = False
-
-    # Indicate whether app should rerun as settings are modified (initially set as True to run validations on entry)
-    if "rerun_on_settings_change" not in st.session_state:
-        st.session_state.rerun_on_settings_change = True
-
-    # Indicate ongoing rerun not to validate the same settings configuration again
-    if "settings_rerun_in_progress" not in st.session_state:
-        st.session_state.settings_rerun_in_progress = False
 
     # Indicate whether comprehensive crawl (BFS) should be executed
     if "bfs_pending" not in st.session_state:
@@ -201,21 +195,17 @@ def ui_elements_enabled() -> bool:
     return st.session_state.chat_loaded and st.session_state.last_crawl_completed and st.session_state.response_written
 
 
-def settings_change_callback() -> None:
+def collection_already_exists() -> bool:
     """
-    Callback invoked when any of the settings change, forces app refresh to enable submit button.
+    Indicate whether new collection already exists.
     """
-    # Rerun on settings change to refresh the sidebar
-    st.session_state.rerun_on_settings_change = True
+    return st.session_state.new_collection in st.session_state.collections
 
 
 def submit_settings_callback() -> None:
     """
     Callback invoked when settings submit button is clicked.
     """
-    # Rerun on settings change to refresh the sidebar
-    st.session_state.rerun_on_settings_change = True
-
     if st.session_state.bfs_with_qds_settings and st.session_state.crawler__repeat_bfs:
         # Repeat comprehensive crawl with the same settings
         st.session_state.bfs_pending = True
@@ -225,13 +215,26 @@ def submit_settings_callback() -> None:
         # Indicate that crawl hasn't finished yet
         st.session_state.bfs_in_progress = True
         st.session_state.last_crawl_completed = False
-
-
-def collection_already_exists() -> bool:
-    """
-    Indicate whether new collection already exists.
-    """
-    return st.session_state.new_collection in st.session_state.collections
+    
+        # LLM does not exist or submit is required
+    
+    # Update settings
+    for primary_key, keys_list in st.session_state.modified_keys.items():
+        for foreign_key in keys_list:
+            # Assign most recent value from the control
+            st.session_state.settings[primary_key][foreign_key] = st.session_state[f"{primary_key}__{foreign_key}"]
+    
+    
+    if "llm" not in st.session_state or st.session_state.modified_keys["llm"]:
+        # Initialize LLM with modified settings
+        st.session_state.llm = LLM(
+            system_prompt=LLMConfig.SYSTEM_PROMPT,
+            model_variant=st.session_state.settings["llm"]["generative_model"],
+            temperature=st.session_state.settings["llm"]["temperature"],
+            max_tokens=st.session_state.settings["llm"]["max_tokens"],
+            keep_alive=LLMConfig.KEEP_ALIVE,
+            timeout=LLMConfig.TIMEOUT,
+        )
 
 
 def add_collection_callback() -> None:
@@ -290,6 +293,25 @@ def delete_collection_callback() -> None:
         st.session_state.collections.pop(st.session_state.rag__collection_name)
 
 
+@st.dialog("Deleting message history")
+def confirm_message_cleanup() -> None:
+    """
+    Dialog to confirm cleanup of chat messages.
+    """
+    # Display information to the user
+    st.write("Chat window and all the previous messages will be wiped out")
+    st.warning("This action is irreversible, consider downloading chat history")
+
+    # Confirm button
+    if st.button("Confirm"):
+
+        # Remove messages
+        del st.session_state["messages"]
+
+        # Close the modal and refresh messages
+        st.rerun()
+
+
 def basic_settings() -> None:
     """
     Basic settings widget.
@@ -308,8 +330,7 @@ def basic_settings() -> None:
                 key="crawler__enabled",
                 selection_mode="single",
                 disabled=not ui_elements_enabled(),
-                default=False,
-                on_change=settings_change_callback
+                default=False
             )
 
             if st.session_state.crawler__enabled:
@@ -381,8 +402,7 @@ def rag_settings() -> None:
             key="rag__search_function",
             format_func=lambda x: options_map[x],
             disabled=not ui_elements_enabled(),
-            default=st.session_state.settings["rag"]["search_function"],
-            on_change=settings_change_callback
+            default=st.session_state.settings["rag"]["search_function"]
         )
 
         st.caption(
@@ -402,7 +422,6 @@ def rag_settings() -> None:
                 options=st.session_state.collections.keys(),
                 key="rag__collection_name",
                 index=None,
-                on_change=settings_change_callback,
                 disabled=not ui_elements_enabled()
             )
 
@@ -459,7 +478,6 @@ def rag_settings() -> None:
             options=sorted(st.session_state.bert_models),
             key="rag__embedding_model",
             index=0,
-            on_change=settings_change_callback,
             disabled=len(
                 st.session_state.bert_models) == 1 or not ui_elements_enabled()
         )
@@ -469,8 +487,7 @@ def rag_settings() -> None:
             options=[i for i in range(1, max(3, RAGConfig.TOP_K) + 1)],
             key="rag__top_k",
             disabled=not ui_elements_enabled(),
-            value=st.session_state.settings["rag"]["top_k"],
-            on_change=settings_change_callback
+            value=st.session_state.settings["rag"]["top_k"]
         )
 
         options_map = {
@@ -484,8 +501,7 @@ def rag_settings() -> None:
             format_func=lambda x: options_map.get(x, x),
             key="rag__window_size",
             disabled=not ui_elements_enabled(),
-            value=st.session_state.settings["rag"]["window_size"],
-            on_change=settings_change_callback
+            value=st.session_state.settings["rag"]["window_size"]
         )
 
         options_map = {
@@ -500,8 +516,7 @@ def rag_settings() -> None:
                 x, None) else f"{x * 100}%",
             key="rag__window_overlap",
             disabled=not ui_elements_enabled(),
-            value=st.session_state.settings["rag"]["window_overlap"],
-            on_change=settings_change_callback
+            value=st.session_state.settings["rag"]["window_overlap"]
         )
 
         st.info("In Ollama, default context size is 2048 tokens")
@@ -520,8 +535,7 @@ def rag_settings() -> None:
                     st.session_state.last_crawl_completed and
                     st.session_state.response_written
                 ),
-                value=st.session_state.settings["rag"]["fetch_k"],
-                on_change=settings_change_callback
+                value=st.session_state.settings["rag"]["fetch_k"]
             )
 
             options_map = {
@@ -539,8 +553,7 @@ def rag_settings() -> None:
                     st.session_state.last_crawl_completed and
                     st.session_state.response_written
                 ),
-                value=st.session_state.settings["rag"]["min_diversity"],
-                on_change=settings_change_callback
+                value=st.session_state.settings["rag"]["min_diversity"]
             )
 
         else:
@@ -566,8 +579,7 @@ def rag_settings() -> None:
                     st.session_state.last_crawl_completed and
                     st.session_state.response_written
                 ),
-                value=st.session_state.settings["rag"]["min_similarity"],
-                on_change=settings_change_callback
+                value=st.session_state.settings["rag"]["min_similarity"]
             )
 
             st.warning(
@@ -586,8 +598,7 @@ def crawler_settings() -> None:
             key="crawler__url",
             disabled=not (
                 st.session_state.crawler__enabled and ui_elements_enabled()
-            ),
-            on_change=settings_change_callback
+            )
         )
 
         options_map = {
@@ -604,8 +615,7 @@ def crawler_settings() -> None:
             default=st.session_state.settings["crawler"]["relevant_search"],
             disabled=not (
                 st.session_state.crawler__enabled and ui_elements_enabled()
-            ),
-            on_change=settings_change_callback
+            )
         )
 
         if st.session_state.crawler__relevant_search:
@@ -636,8 +646,7 @@ def crawler_settings() -> None:
             value=st.session_state.settings["crawler"]["max_depth"],
             disabled=not (
                 st.session_state.crawler__enabled and ui_elements_enabled()
-            ),
-            on_change=settings_change_callback
+            )
         )
 
         if st.session_state.crawler__enabled:
@@ -662,8 +671,7 @@ def crawler_settings() -> None:
             key="crawler__max_pages",
             disabled=not (
                 st.session_state.crawler__enabled and ui_elements_enabled()
-            ),
-            on_change=settings_change_callback
+            )
         )
 
         if st.session_state.crawler__enabled:
@@ -696,8 +704,7 @@ def crawler_settings() -> None:
                 value=st.session_state.settings["crawler"]["kw_weight"],
                 disabled=not (
                     st.session_state.crawler__enabled and ui_elements_enabled()
-                ),
-                on_change=settings_change_callback
+                )
             )
 
         else:
@@ -718,8 +725,7 @@ def crawler_settings() -> None:
                 value=st.session_state.settings["crawler"]["min_score"],
                 disabled=not (
                     st.session_state.crawler__enabled and ui_elements_enabled()
-                ),
-                on_change=settings_change_callback
+                )
             )
 
             if st.session_state.crawler__enabled:
@@ -735,8 +741,7 @@ def crawler_settings() -> None:
                     key="crawler__repeat_bfs",
                     disabled=not (
                         st.session_state.crawler__enabled and ui_elements_enabled()
-                    ),
-                    on_change=settings_change_callback
+                    )
                 )
 
                 st.caption(
@@ -760,7 +765,6 @@ def llm_settings() -> None:
             options=sorted(st.session_state.llm_models),
             key="llm__generative_model",
             index=0,
-            on_change=settings_change_callback,
             disabled=len(
                 st.session_state.llm_models) == 1 or not ui_elements_enabled()
         )
@@ -776,8 +780,7 @@ def llm_settings() -> None:
             format_func=lambda x: options_map.get(x, x),
             key="llm__temperature",
             disabled=not ui_elements_enabled(),
-            value=st.session_state.settings["llm"]["temperature"],
-            on_change=settings_change_callback
+            value=st.session_state.settings["llm"]["temperature"]
         )
 
         if st.session_state.llm__temperature > 0.5:
@@ -802,28 +805,139 @@ def llm_settings() -> None:
                 else int(x),
             key="llm__max_tokens",
             disabled=not ui_elements_enabled(),
-            value=st.session_state.settings["llm"]["max_tokens"],
-            on_change=settings_change_callback
+            value=st.session_state.settings["llm"]["max_tokens"]
         )
 
 
-@st.dialog("Deleting message history")
-def confirm_message_cleanup() -> None:
+def debug_settings(primary_key: Literal["crawler", "rag", "llm"]) -> None:
     """
-    Dialog to confirm cleanup of chat messages.
+    Debug settings.
+
+    Parameters
+    ----------
+        primary_key : Literal["crawler", "rag", "llm"]
+            Key to the appropriate configuration.
     """
-    # Display information to the user
-    st.write("Chat window and all the previous messages will be wiped out")
-    st.warning("This action is irreversible, consider downloading chat history")
+    print(
+        f"\n=== {primary_key.upper()} modified settings: {[
+            (foreign_key, st.session_state.get(f"{primary_key}__{foreign_key}", None), value) for foreign_key, value in st.session_state.settings[primary_key].items()
+        ]} ==="
+    )
+    print(
+        f"=== Submit button clicked: {st.session_state.submit_settings_clicked} ==="
+    )
+    print(
+        f"=== Submit required: {st.session_state.settings_submit_required} ==="
+    )
+    if primary_key == "crawler":
+        print(
+            f"=== BFS pending: {st.session_state.bfs_pending} ==="
+        )
+        print(
+            f"=== BFS in progress: {st.session_state.bfs_in_progress} ==="
+        )
+        print(
+            f"=== Last crawl completed: {st.session_state.last_crawl_completed} ==="
+        )
+        print(
+            f"=== BFS with QDS settings: {st.session_state.bfs_with_qds_settings} ==="
+        )
+    print("\n")
 
-    # Confirm button
-    if st.button("Confirm"):
 
-        # Remove messages
-        del st.session_state["messages"]
+def modified_settings(primary_key: Literal["crawler", "rag", "llm"]) -> Generator[str]:
+    """
+    Retrieve list of keys associated with the settings, which were modified.
 
-        # Close the modal and refresh messages
-        st.rerun()
+    Parameters
+    ----------
+        primary_key : Literal["crawler", "rag", "llm"]
+            Key to the appropriate configuration.
+
+    Returns
+    -------
+        Generator[str]
+            Yields keys corresponding to the modified settings.
+    """
+    # Check if submit is required
+    for foreign_key, value in st.session_state.settings[primary_key].items():
+
+        # Get value from the control
+        control_value = st.session_state.get(
+            f"{primary_key}__{foreign_key}",
+            None
+        )
+
+        # Settings were modified
+        if control_value is not None and control_value != value:
+
+            # Yield modified key
+            yield foreign_key
+
+
+def validate_rag_settings():
+    """
+    Validate RAG's settings.
+    """
+    # Collection name must not be empty
+    if not st.session_state.rag__collection_name:
+
+        # Update error message
+        st.session_state.settings_messages.append(
+            "Please configure collection")
+
+
+def validate_crawler_settings():
+    """
+    Validate crawler's settings.
+    """
+    # Revert flags on entry
+    st.session_state.bfs_pending = False
+    st.session_state.bfs_with_qds_settings = False
+
+    # Crawling mode is enabled
+    if st.session_state.crawler__enabled:
+
+        # Website URL must not be empty
+        if not st.session_state.crawler__url:
+
+            # Update error message
+            st.session_state.settings_messages.append(
+                "Please configure website URL")
+
+            # Indicate error
+            return
+
+        # Verify if URL exists
+        # Authentication and redirects are handled implicitly by the crawler using managed browser with persistent chroma profile
+        http_code, http_message = validate_url(st.session_state.crawler__url)
+
+        # Connection was never established
+        if http_code == -1:
+
+            # Update error message
+            st.session_state.settings_messages.append(http_message)
+
+            # Indicate error
+            return
+
+        # Query-driven crawl runs for each prompt, but comprehensive crawl runs conditionally
+        if not st.session_state.crawler__relevant_search:
+
+            # Perform comprehensive crawl as long as any associated settings changed
+            if any(key in st.session_state.modified_keys["crawler"] for key in {"url", "max_depth", "max_pages", "min_score"}):
+                # Indicate that comprehensive crawl can be executed
+                st.session_state.bfs_pending = True
+
+            # Parameters are the same as in the previous query-driven search
+            elif st.session_state.settings["crawler"]["relevant_search"]:
+
+                # User confirms whether to repeat comprehensive crawl with the same settings
+                st.session_state.bfs_with_qds_settings = True
+
+    else:
+        # Crawling mode is disabled
+        st.session_state.settings["crawler"]["enabled"] = False
 
 
 def sidebar() -> None:
@@ -840,44 +954,77 @@ def sidebar() -> None:
             st.header("Settings")
             st.caption("Modify settings to control behaviour of your assistant")
 
-            # Display status message
-            if not st.session_state.bert_models:
-                st.error(
-                    "No [embedding models](%s) available" %
-                    "https://ollama.com/search?c=embedding"
-                )
+            # Create placeholder to display messages after validation
+            st.session_state.message_placeholder = st.empty()
 
-            elif not st.session_state.llm_models:
-                st.error(
-                    "No [generative models](%s) available" %
-                    "https://ollama.com/search"
-                )
-            elif not st.session_state.chat_loaded:
-                st.warning("Please wait until chat widget is fully loaded")
+            with st.session_state.message_placeholder:
+                
+                # No embedding models pulled
+                if not st.session_state.bert_models:
+                    st.error(
+                        "No [embedding models](%s) available" %
+                        "https://ollama.com/search?c=embedding"
+                    )
 
-            elif st.session_state.settings_error_message:
-                st.error(st.session_state.settings_error_message)
+                # No generative models pulled
+                elif not st.session_state.llm_models:
+                    st.error(
+                        "No [generative models](%s) available" %
+                        "https://ollama.com/search"
+                    )
+                
+                # App is not fully loaded yet
+                elif not st.session_state.chat_loaded:
+                    st.warning("Please wait until chat widget is fully loaded")
 
-            elif st.session_state.initial_settings_submitted:
-                st.success("Settings configured successfully")
-
-            # Render basic settings
+            # Render settings
             basic_settings()
-
-            # Render RAG settings
             rag_settings()
-
-            # Render crawler settings
             crawler_settings()
-
-            # Render LLM settings
             llm_settings()
 
+            # Store modified keys in set for faster retrieval ('is in' operator)
+            st.session_state.modified_keys = {
+                key: set(modified_settings(key)) for key in st.session_state.modified_keys
+            }
+
+            # Validate settings
+            st.session_state.settings_messages = []
+            validate_rag_settings()
+            validate_crawler_settings()
+
+            # Check if submit is required and display appropriate messages
+            st.session_state.settings_submit_required = False
+
+            if not st.session_state.settings_messages:
+                
+                # Check if any key was modified
+                if any(
+                    len(data) > 0 for data in st.session_state.modified_keys.values()
+                ):
+                    # Submit is required
+                    st.session_state.settings_submit_required = True
+
+                    # Display error
+                    with st.session_state.message_placeholder:
+                        st.error("Please submit settings")
+                
+                else:
+                    # Submit is not required
+                    with st.session_state.message_placeholder:
+                        st.success("Settings configured successully")
+            
+            else:
+                # Display validation messages
+                with st.session_state.message_placeholder:
+                    for message in st.session_state.settings_messages:
+                        st.error(message)
+
             # Custom form submit button
-            st.session_state.submit_settings_clicked = st.button(
+            st.button(
                 label="Submit",
                 type="primary",
-                key="submit_settings",
+                key="submit_settings_clicked",
                 disabled=not (
                     st.session_state.settings_submit_required and
                     st.session_state.last_crawl_completed and
@@ -935,315 +1082,6 @@ def sidebar() -> None:
                         )
                     )
                 )
-                    # # Remove messages
-                    # del st.session_state["messages"]
-
-                    # # Force rerun to refresh messages
-                    # st.rerun()
-
-
-def debug_settings(primary_key: Literal["crawler", "rag", "llm"]) -> None:
-    """
-    Debug settings.
-
-    Parameters
-    ----------
-        primary_key : Literal["crawler", "rag", "llm"]
-            Key to the appropriate configuration.
-    """
-    print(
-        f"\n=== {primary_key.upper()} modified settings: {[
-            (foreign_key, st.session_state.get(f"{primary_key}__{foreign_key}", None), value) for foreign_key, value in st.session_state.settings[primary_key].items()
-        ]} ==="
-    )
-    print(
-        f"=== Initial settings submitted: {st.session_state.initial_settings_submitted} ==="
-    )
-    print(
-        f"=== Submit button clicked: {st.session_state.submit_settings_clicked} ==="
-    )
-    print(
-        f"=== Rerun on settings change: {st.session_state.rerun_on_settings_change} ==="
-    )
-    print(
-        f"=== Submit required: {st.session_state.settings_submit_required} ==="
-    )
-    if primary_key == "crawler":
-        print(
-            f"=== BFS pending: {st.session_state.bfs_pending} ==="
-        )
-        print(
-            f"=== BFS in progress: {st.session_state.bfs_in_progress} ==="
-        )
-        print(
-            f"=== Last crawl completed: {st.session_state.last_crawl_completed} ==="
-        )
-        print(
-            f"=== BFS with QDS settings: {st.session_state.bfs_with_qds_settings} ==="
-        )
-    print("\n")
-
-
-def modified_settings(primary_key: Literal["crawler", "rag", "llm"]) -> Generator[str]:
-    """
-    Retrieve list of keys associated with the settings, which were modified.
-
-    Parameters
-    ----------
-        primary_key : Literal["crawler", "rag", "llm"]
-            Key to the appropriate configuration.
-
-    Returns
-    -------
-        Generator[str]
-            Yields keys corresponding to the modified settings.
-    """
-    # Check if submit is required
-    for foreign_key, value in st.session_state.settings[primary_key].items():
-
-        # Get value from the control
-        control_value = st.session_state.get(
-            f"{primary_key}__{foreign_key}",
-            None
-        )
-
-        # Settings were modified
-        if control_value is not None and control_value != value:
-
-            # Yield modified key
-            yield foreign_key
-
-
-def llm_settings_submitted() -> bool:
-    """
-    Handle manual submission of the LLM's settings.
-
-    Returns
-    -------
-        bool
-            Indicates whether any modified settings are submitted.
-    """
-    # Get list of modified keys
-    modified_keys = [key for key in modified_settings("llm")]
-
-    # LLM does not exist or submit is required
-    if "llm" not in st.session_state or modified_keys:
-
-        # Flag required submit
-        st.session_state.settings_submit_required = True
-
-        # Changes are not submitted (skip initial settings)
-        if st.session_state.initial_settings_submitted and not st.session_state.submit_settings_clicked:
-
-            # Update error message
-            st.session_state.settings_error_message = "Please submit settings"
-
-            # Flag ongoing rerun to skip settings validation and show error status
-            st.session_state.settings_rerun_in_progress = True
-
-            # Indicate error
-            return False
-
-        # Update settings
-        for key in modified_keys:
-
-            # Assign most recent value from the control
-            st.session_state.settings["llm"][key] = st.session_state[f"llm__{key}"]
-
-        # Initialize LLM with modified settings
-        st.session_state.llm = LLM(
-            system_prompt=LLMConfig.SYSTEM_PROMPT,
-            model_variant=st.session_state.settings["llm"]["generative_model"],
-            temperature=st.session_state.settings["llm"]["temperature"],
-            max_tokens=st.session_state.settings["llm"]["max_tokens"],
-            keep_alive=LLMConfig.KEEP_ALIVE,
-            timeout=LLMConfig.TIMEOUT,
-        )
-
-    # Indicate success
-    return True
-
-
-def rag_settings_submitted() -> bool:
-    """
-    Handle manual submission of the RAG's settings.
-
-    Returns
-    -------
-        bool
-            Indicates whether any modified settings are submitted.
-    """
-    # Website URL must not be empty
-    if not st.session_state.rag__collection_name:
-
-        # Update error message
-        st.session_state.settings_error_message = "Please configure collection"
-
-        # Flag ongoing rerun to skip settings validation and show error status
-        st.session_state.settings_rerun_in_progress = True
-
-        # Indicate error
-        return False
-
-    # Get list of modified keys
-    modified_keys = [key for key in modified_settings("rag")]
-
-    # LLM does not exist or submit is required
-    if modified_keys:
-
-        # Flag required submit
-        st.session_state.settings_submit_required = True
-
-        # Changes are not submitted (skip initial settings)
-        if not st.session_state.submit_settings_clicked:
-
-            # Update error message
-            st.session_state.settings_error_message = "Please submit settings"
-
-            # Flag ongoing rerun to skip settings validation and show error status
-            st.session_state.settings_rerun_in_progress = True
-
-            # Indicate error
-            return False
-
-        # Update settings
-        for key in modified_keys:
-
-            # Assign most recent value from the control
-            st.session_state.settings["rag"][key] = st.session_state[f"rag__{key}"]
-
-    # Indicate success
-    return True
-
-
-def crawler_settings_submitted() -> bool:
-    """
-    Handle manual submission of the crawler's settings.
-
-    Returns
-    -------
-        bool
-            Indicates whether any modified settings are submitted.
-    """
-    # Revert flags on entry
-    st.session_state.bfs_pending = False
-    st.session_state.bfs_with_qds_settings = False
-
-    # Crawling mode is enabled
-    if st.session_state.crawler__enabled:
-
-        # Website URL must not be empty
-        if not st.session_state.crawler__url:
-
-            # Update error message
-            st.session_state.settings_error_message = "Please configure website URL"
-
-            # Flag ongoing rerun to skip settings validation and show error status
-            st.session_state.settings_rerun_in_progress = True
-
-            # Indicate error
-            return False
-
-        # Verify if URL exists
-        # Authentication and redirects are handled implicitly by the crawler using managed browser with persistent chroma profile
-        http_code, http_message = validate_url(st.session_state.crawler__url)
-
-        # Connection was never established
-        if http_code == -1:
-
-            # Update error message
-            st.session_state.settings_error_message = http_message
-
-            # Flag ongoing rerun to skip settings validation and show error status
-            st.session_state.settings_rerun_in_progress = True
-
-            # Indicate error
-            return False
-
-        # Store modified keys in set for faster retrieval
-        modified_keys = {key for key in modified_settings("crawler")}
-
-        # Query-driven crawl runs for each prompt, but comprehensive crawl runs conditionally
-        if not st.session_state.crawler__relevant_search:
-
-            # Perform comprehensive crawl as long as any associated settings changed
-            if any(key in modified_keys for key in {"url", "max_depth", "max_pages", "min_score"}):
-                # Indicate that comprehensive crawl can be executed
-                st.session_state.bfs_pending = True
-
-            # Parameters are the same as in the previous query-driven search
-            elif st.session_state.settings["crawler"]["relevant_search"]:
-
-                # User confirms whether to repeat comprehensive crawl with the same settings
-                st.session_state.bfs_with_qds_settings = True
-
-        # Crawler's settings were modified
-        if modified_keys:
-
-            # Submit is required
-            st.session_state.settings_submit_required = True
-
-            # Changes are not submitted
-            if not st.session_state.submit_settings_clicked:
-
-                # Update error message
-                st.session_state.settings_error_message = "Please submit settings"
-
-                # Flag ongoing rerun to skip settings validation and show error status
-                st.session_state.settings_rerun_in_progress = True
-
-                # Indicate error
-                return False
-
-            # Update settings
-            for key in modified_keys:
-
-                # Assign most recent value from the control
-                st.session_state.settings["crawler"][
-                    key] = st.session_state[f"crawler__{key}"]
-
-        # Indicate success
-        return True
-
-    # Crawling mode is disabled
-    st.session_state.settings["crawler"]["enabled"] = False
-
-    # Indicate success
-    return True
-
-
-def settings_configured() -> bool:
-    """
-    Validate settings configuration.
-
-    Returns
-    -------
-        bool
-            Indicates whether chat configuration is ready.
-    """
-    # Refresh flags before checking for settings that require submit
-    st.session_state.settings_error_message = ""
-    st.session_state.settings_submit_required = False
-
-    if not llm_settings_submitted():
-        # Some modified LLM's settigns were not submitted
-        return False
-
-    if not crawler_settings_submitted():
-        # Some modified crawler's settigns were not submitted
-        return False
-    
-    if not rag_settings_submitted():
-        # Some modified RAG's settigns were not submitted
-        return False
-
-    # Revert flags as soon as settings are submitted
-    st.session_state.settings_error_message = ""
-    st.session_state.settings_submit_required = False
-    st.session_state.initial_settings_submitted = True
-
-    # Indicate success
-    return True
 
 
 def chat_input_callback() -> None:
@@ -1390,26 +1228,6 @@ async def chat_widget() -> None:
             # Deleting existing collection requires confirmation on a modal
             confirm_collection_deletion()
 
-        # Skip settings validation after rerun to avoid numerous screen renders
-        elif st.session_state.rerun_on_settings_change and not st.session_state.settings_rerun_in_progress:
-
-            # Chat is not yet configured
-            if not settings_configured():
-                # Rerun to display error status, disable chat input and options, and enable submit button if required
-                st.rerun()
-
-            # Prevent subsequent reruns
-            st.session_state.rerun_on_settings_change = False
-
-            # Flag ongoing rerun to disable submit button and show success status after settings were submitted
-            st.session_state.settings_rerun_in_progress = True
-
-            # Rerun to display success status, enable chat input and options, and disable submit button
-            st.rerun()
-
-        # Indicate that rerun has completed
-        st.session_state.settings_rerun_in_progress = False
-
     # Load message history
     message_history()
 
@@ -1418,7 +1236,9 @@ async def chat_widget() -> None:
         placeholder="Ask anything",
         on_submit=chat_input_callback,
         disabled=(
-            st.session_state.settings_error_message != "" or not ui_elements_enabled()
+            len(st.session_state.settings_messages) > 0 or 
+            st.session_state.settings_submit_required or 
+            not ui_elements_enabled()
         ),
     ):
         # Reppond to the prompt
