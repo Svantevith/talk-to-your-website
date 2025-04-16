@@ -103,9 +103,9 @@ def persist_state() -> None:
     if "collection_deletion_modal" not in st.session_state:
         st.session_state.collection_deletion_modal = False
     
-    # Store messages from settings validation
-    if "settings_messages" not in st.session_state:
-        st.session_state.settings_messages = []
+    # Store error messages from settings validation
+    if "settings_errors" not in st.session_state:
+        st.session_state.settings_errors = []
 
     # Indicate whether settings submit is required
     if "settings_submit_required" not in st.session_state:
@@ -849,7 +849,7 @@ def validate_rag_settings():
     if not st.session_state.rag__collection_name:
 
         # Update error message
-        st.session_state.settings_messages.append(
+        st.session_state.settings_errors.append(
             "Please configure collection")
 
 
@@ -861,7 +861,7 @@ def validate_crawler_settings():
     if not st.session_state.crawler__url:
 
         # Update error message
-        st.session_state.settings_messages.append("Please configure website URL")
+        st.session_state.settings_errors.append("Please configure website URL")
 
         # Indicate error
         return
@@ -874,7 +874,7 @@ def validate_crawler_settings():
     if http_code == -1:
 
         # Update error message
-        st.session_state.settings_messages.append(http_message)
+        st.session_state.settings_errors.append(http_message)
 
         # Indicate error
         return
@@ -935,6 +935,7 @@ def sidebar() -> None:
             crawler_settings()
             llm_settings()
 
+            # Do not perform any validations until chat is fully loaded
             if st.session_state.chat_loaded:
 
                 # Store modified keys in set for faster retrieval ('is in' operator) before the validation
@@ -945,7 +946,7 @@ def sidebar() -> None:
                 # Validate settings
                 st.session_state.bfs_pending = False
                 st.session_state.settings_submit_required = False
-                st.session_state.settings_messages = []
+                st.session_state.settings_errors = []
                 validate_rag_settings()
 
                 # Crawling mode is enabled
@@ -953,7 +954,7 @@ def sidebar() -> None:
                     validate_crawler_settings()
 
                 # Check if submit is required and display appropriate messages
-                if not st.session_state.settings_messages:
+                if not st.session_state.settings_errors:
                     
                     # Check if any key was modified
                     if any(
@@ -967,15 +968,16 @@ def sidebar() -> None:
                             st.error("Please submit settings")
                     
                     else:
-                        # Submit is not required
+                        # Changes were submitted
                         with st.session_state.message_placeholder:
                             st.success("Settings configured successully")
                 
                 else:
                     # Display validation messages
                     with st.session_state.message_placeholder:
-                        for message in st.session_state.settings_messages:
+                        for message in st.session_state.settings_errors:
                             st.error(message)
+
 
             # Custom form submit button
             st.button(
@@ -992,7 +994,11 @@ def sidebar() -> None:
 
             # Show warning telling that crawl will be executed on submit
             if st.session_state.bfs_pending:
-                st.warning("Crawl pending on submit")
+                st.badge(
+                    label="Crawl pending on submit", 
+                    color="orange",
+                    icon=":material/warning:"
+                )
 
         # Render options
         with st.container(border=True):
@@ -1197,7 +1203,7 @@ async def chat_widget() -> None:
         placeholder="Ask anything",
         on_submit=chat_input_callback,
         disabled=(
-            len(st.session_state.settings_messages) > 0 or 
+            len(st.session_state.settings_errors) > 0 or 
             st.session_state.settings_submit_required or 
             not ui_elements_enabled()
         ),
