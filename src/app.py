@@ -114,18 +114,14 @@ def persist_state() -> None:
     # Indicate whether comprehensive crawl (BFS) should be executed
     if "bfs_pending" not in st.session_state:
         st.session_state.bfs_pending = False
-
+    
     # Indicate ongoing comprehensive crawl (BFS) execution
     if "bfs_in_progress" not in st.session_state:
         st.session_state.bfs_in_progress = False
 
-    # Indicates that comprehensive crawl (BFS) is configured to run with identical settings as previous query-driven crawl (QDS)
-    if "bfs_with_qds_settings" not in st.session_state:
-        st.session_state.bfs_with_qds_settings = False
-
     # Indicate ongoing query-driven crawl (QDS) execution
     if "qds_in_progress" not in st.session_state:
-        st.session_state.qds_in_progress = False
+        st.session_state.qds_in_progress= False
 
     # Indicate whether last crawl (either BFS or QDS) has finished execution
     if "last_crawl_completed" not in st.session_state:
@@ -206,21 +202,12 @@ def submit_settings_callback() -> None:
     """
     Callback invoked when settings submit button is clicked.
     """
-    if st.session_state.bfs_with_qds_settings and st.session_state.crawler__repeat_bfs:
-        # Repeat comprehensive crawl with the same settings
-        st.session_state.bfs_pending = True
-    
-    if "collection_name" in st.session_state.modified_keys["rag"] and not st.session_state.crawler__relevant_search:
-        # Repeat comprehensive crawl for new collection
-        st.session_state.bfs_pending = True
-
-    # Rerun before BFS
-    if connected_to_internet() and st.session_state.crawler__enabled and st.session_state.bfs_pending:
-        # Indicate that crawl hasn't finished yet
-        st.session_state.bfs_in_progress = True
-        st.session_state.last_crawl_completed = False
-    
-        # LLM does not exist or submit is required
+    # Query-driven crawl runs for each prompt, but comprehensive crawl runs conditionally
+    if st.session_state.bfs_pending:
+            # Indicate that comprehensive crawl can be executed
+            st.session_state.bfs_pending = False
+            st.session_state.bfs_in_progress = True
+            st.session_state.last_crawl_completed = False
     
     # Update settings
     for primary_key, keys_list in st.session_state.modified_keys.items():
@@ -674,7 +661,9 @@ def crawler_settings() -> None:
             value=st.session_state.settings["crawler"]["max_pages"],
             key="crawler__max_pages",
             disabled=not (
-                st.session_state.crawler__enabled and ui_elements_enabled()
+                st.session_state.crawler__enabled and 
+                st.session_state.crawler__max_depth > 0 and
+                ui_elements_enabled()
             )
         )
 
@@ -692,7 +681,6 @@ def crawler_settings() -> None:
         if st.session_state.crawler__relevant_search:
             # Pop conditional control values that are not used
             st.session_state.pop("crawler__min_score", None)
-            st.session_state.pop("crawler__repeat_bfs", None)
 
             options = [i / 10 for i in range(11)]
             options_map = {
@@ -736,26 +724,6 @@ def crawler_settings() -> None:
                 st.info(
                     "Reduce this value to **prevent shallow exploration**"
                 )
-
-            if st.session_state.bfs_with_qds_settings:
-
-                st.checkbox(
-                    label="Confirm subsequent iteration",
-                    value=False,
-                    key="crawler__repeat_bfs",
-                    disabled=not (
-                        st.session_state.crawler__enabled and ui_elements_enabled()
-                    )
-                )
-
-                st.caption(
-                    "Would you like to run comprehensive search **without adjustments**?"
-                )
-
-                if st.session_state.crawler__enabled:
-                    st.warning(
-                        "Settings are identical to the previous query-driven search"
-                    )
 
 
 def llm_settings() -> None:
@@ -838,13 +806,7 @@ def debug_settings(primary_key: Literal["crawler", "rag", "llm"]) -> None:
             f"=== BFS pending: {st.session_state.bfs_pending} ==="
         )
         print(
-            f"=== BFS in progress: {st.session_state.bfs_in_progress} ==="
-        )
-        print(
             f"=== Last crawl completed: {st.session_state.last_crawl_completed} ==="
-        )
-        print(
-            f"=== BFS with QDS settings: {st.session_state.bfs_with_qds_settings} ==="
         )
     print("\n")
 
@@ -895,53 +857,39 @@ def validate_crawler_settings():
     """
     Validate crawler's settings.
     """
-    # Revert flags on entry
-    st.session_state.bfs_pending = False
-    st.session_state.bfs_with_qds_settings = False
+    # Website URL must not be empty
+    if not st.session_state.crawler__url:
 
-    # Crawling mode is enabled
-    if st.session_state.crawler__enabled:
+        # Update error message
+        st.session_state.settings_messages.append("Please configure website URL")
 
-        # Website URL must not be empty
-        if not st.session_state.crawler__url:
+        # Indicate error
+        return
 
-            # Update error message
-            st.session_state.settings_messages.append(
-                "Please configure website URL")
+    # Verify if URL exists
+    # Authentication and redirects are handled implicitly by the crawler using managed browser with persistent chroma profile
+    http_code, http_message = validate_url(st.session_state.crawler__url)
 
-            # Indicate error
-            return
+    # Connection was never established
+    if http_code == -1:
 
-        # Verify if URL exists
-        # Authentication and redirects are handled implicitly by the crawler using managed browser with persistent chroma profile
-        http_code, http_message = validate_url(st.session_state.crawler__url)
+        # Update error message
+        st.session_state.settings_messages.append(http_message)
 
-        # Connection was never established
-        if http_code == -1:
+        # Indicate error
+        return
+    
+    # Query-driven crawl runs for each prompt, but comprehensive crawl runs conditionally
+    if not st.session_state.crawler__relevant_search and (
+        
+        # Any associated setting changed
+        any(key in st.session_state.modified_keys["crawler"] for key in {"url", "relevant_search", "max_depth", "max_pages", "min_score"}) or
 
-            # Update error message
-            st.session_state.settings_messages.append(http_message)
-
-            # Indicate error
-            return
-
-        # Query-driven crawl runs for each prompt, but comprehensive crawl runs conditionally
-        if not st.session_state.crawler__relevant_search:
-
-            # Perform comprehensive crawl as long as any associated settings changed
-            if any(key in st.session_state.modified_keys["crawler"] for key in {"url", "max_depth", "max_pages", "min_score"}):
-                # Indicate that comprehensive crawl can be executed
-                st.session_state.bfs_pending = True
-
-            # Parameters are the same as in the previous query-driven search
-            elif st.session_state.settings["crawler"]["relevant_search"]:
-
-                # User confirms whether to repeat comprehensive crawl with the same settings
-                st.session_state.bfs_with_qds_settings = True
-
-    else:
-        # Crawling mode is disabled
-        st.session_state.settings["crawler"]["enabled"] = False
+        # Name of the collection changed
+        "collection_name" in st.session_state.modified_keys["rag"]
+    ):
+        # Indicate that comprehensive crawl can be executed
+        st.session_state.bfs_pending = True
 
 
 def sidebar() -> None:
@@ -989,19 +937,22 @@ def sidebar() -> None:
 
             if st.session_state.chat_loaded:
 
-                # Store modified keys in set for faster retrieval ('is in' operator)
+                # Store modified keys in set for faster retrieval ('is in' operator) before the validation
                 st.session_state.modified_keys = {
                     key: set(modified_settings(key)) for key in st.session_state.modified_keys
                 }
 
                 # Validate settings
+                st.session_state.bfs_pending = False
+                st.session_state.settings_submit_required = False
                 st.session_state.settings_messages = []
                 validate_rag_settings()
-                validate_crawler_settings()
+
+                # Crawling mode is enabled
+                if st.session_state.crawler__enabled:
+                    validate_crawler_settings()
 
                 # Check if submit is required and display appropriate messages
-                st.session_state.settings_submit_required = False
-
                 if not st.session_state.settings_messages:
                     
                     # Check if any key was modified
@@ -1038,6 +989,10 @@ def sidebar() -> None:
                 ),
                 on_click=submit_settings_callback
             )
+
+            # Show warning telling that crawl will be executed on submit
+            if st.session_state.bfs_pending:
+                st.warning("Crawl pending on submit")
 
         # Render options
         with st.container(border=True):
@@ -1097,7 +1052,7 @@ def chat_input_callback() -> None:
     # Indicate that stream response is going to be written soon
     st.session_state.response_written = False
 
-    if connected_to_internet() and st.session_state.settings["crawler"]["enabled"] and st.session_state.settings["crawler"]["relevant_search"]:
+    if st.session_state.settings["crawler"]["enabled"] and st.session_state.settings["crawler"]["relevant_search"]:
         # Indicate that query-driven crawl will be executed soon
         st.session_state.qds_in_progress = True
         st.session_state.last_crawl_completed = False
@@ -1158,7 +1113,7 @@ async def chat_response(user_prompt: str) -> None:
         st.markdown(user_prompt)
 
     # Run query-driven crawl (QDS) on each prompt
-    if st.session_state.qds_in_progress:
+    if connected_to_internet() and st.session_state.qds_in_progress:
         with st.spinner("Populating collection"):
             # Extract keywords from the prompt
             keywords = extract_keywords(
@@ -1254,16 +1209,14 @@ async def chat_widget() -> None:
         st.rerun()
 
     # Perform comprehesive crawl (BFS) after submitting modified settings
-    if st.session_state.bfs_in_progress:
+    if connected_to_internet() and st.session_state.bfs_in_progress:
         with st.spinner("Populating collection"):
             # Notice that no keywords are extracted
             await retrieve_knowledgebase([])
 
         # Update flags as soon as comprehensive crawl finishes
-        st.session_state.bfs_pending = False
         st.session_state.bfs_in_progress = False
         st.session_state.last_crawl_completed = True
-        st.session_state.bfs_with_qds_settings = False
 
         # Rerun to enable all previously disabled controls including chat input
         st.rerun()
