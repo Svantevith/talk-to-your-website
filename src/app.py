@@ -209,6 +209,10 @@ def submit_settings_callback() -> None:
     if st.session_state.bfs_with_qds_settings and st.session_state.crawler__repeat_bfs:
         # Repeat comprehensive crawl with the same settings
         st.session_state.bfs_pending = True
+    
+    if "collection_name" in st.session_state.modified_keys["rag"] and not st.session_state.crawler__relevant_search:
+        # Repeat comprehensive crawl for new collection
+        st.session_state.bfs_pending = True
 
     # Rerun before BFS
     if connected_to_internet() and st.session_state.crawler__enabled and st.session_state.bfs_pending:
@@ -983,42 +987,44 @@ def sidebar() -> None:
             crawler_settings()
             llm_settings()
 
-            # Store modified keys in set for faster retrieval ('is in' operator)
-            st.session_state.modified_keys = {
-                key: set(modified_settings(key)) for key in st.session_state.modified_keys
-            }
+            if st.session_state.chat_loaded:
 
-            # Validate settings
-            st.session_state.settings_messages = []
-            validate_rag_settings()
-            validate_crawler_settings()
+                # Store modified keys in set for faster retrieval ('is in' operator)
+                st.session_state.modified_keys = {
+                    key: set(modified_settings(key)) for key in st.session_state.modified_keys
+                }
 
-            # Check if submit is required and display appropriate messages
-            st.session_state.settings_submit_required = False
+                # Validate settings
+                st.session_state.settings_messages = []
+                validate_rag_settings()
+                validate_crawler_settings()
 
-            if not st.session_state.settings_messages:
-                
-                # Check if any key was modified
-                if any(
-                    len(data) > 0 for data in st.session_state.modified_keys.values()
-                ):
-                    # Submit is required
-                    st.session_state.settings_submit_required = True
+                # Check if submit is required and display appropriate messages
+                st.session_state.settings_submit_required = False
 
-                    # Display error
-                    with st.session_state.message_placeholder:
-                        st.error("Please submit settings")
+                if not st.session_state.settings_messages:
+                    
+                    # Check if any key was modified
+                    if any(
+                        len(data) > 0 for data in st.session_state.modified_keys.values()
+                    ):
+                        # Submit is required
+                        st.session_state.settings_submit_required = True
+
+                        # Display error
+                        with st.session_state.message_placeholder:
+                            st.error("Please submit settings")
+                    
+                    else:
+                        # Submit is not required
+                        with st.session_state.message_placeholder:
+                            st.success("Settings configured successully")
                 
                 else:
-                    # Submit is not required
+                    # Display validation messages
                     with st.session_state.message_placeholder:
-                        st.success("Settings configured successully")
-            
-            else:
-                # Display validation messages
-                with st.session_state.message_placeholder:
-                    for message in st.session_state.settings_messages:
-                        st.error(message)
+                        for message in st.session_state.settings_messages:
+                            st.error(message)
 
             # Custom form submit button
             st.button(
