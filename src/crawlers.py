@@ -126,6 +126,8 @@ class DeepCrawler:
             only_text=True,
             # Logs additional runtime details (overlaps with the BrowserConfig’s verbosity)
             verbose=True,
+            # Removes potential modals/popups blocking the main content
+            remove_overlay_elements=True,
             # Simulates a user-like experience, randomizes user agent, navigator, interactions and timings
             # NOT a substitute for true user-based sessions! Fully legitimate identity-based solution is guaranteed using Managed Browsers.
             magic=not self.use_managed_browser,

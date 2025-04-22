@@ -14,7 +14,7 @@ This makes the application an excellent choice for research, knowledge managemen
 
 ## Features
 
-- Deep crawling solution from Crawl4AI precisely extracts AI-optimized content from beyond a single webpage. 
+- Deep crawling solution from Crawl4AI precisely extracts AI-optimized textual content from beyond a single webpage. 
 - Retain session data and browser fingerprints through Playwright-managed Chromium browser and custom user profiles. 
 - Splitting documents into chunks with Langchain keeps context intact, while ensuring token importance.
 - Chroma database client persists vector stores on disk as locally available knowledgebase.
