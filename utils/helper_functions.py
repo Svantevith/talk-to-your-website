@@ -123,8 +123,12 @@ def validate_url(url: str) -> tuple[int, str]:
         # With 'stream' option enabled we avoid body being immediately downloaded unless explicitly requested
         r = requests.get(url, stream=True, allow_redirects=True, verify=True)
 
-        # Indicate success
-        return r.status_code, r.reason
+        if "text/html" in r.headers.get("Content-Type", "").lower():
+            # Indicate success
+            return r.status_code, r.reason
+        
+        # Playwright's page.goto() i.e. Crawl4AI's navigation expects to load a webpage (HTML)
+        return -1, "URL navigation aborted, webpage (HTML) expected"
 
     except (ConnectionRefusedError, requests.ConnectionError, requests.exceptions.MissingSchema) as e:
         return -1, f"Connection with the URL could not be established: {e}"
